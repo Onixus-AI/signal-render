@@ -195,6 +195,67 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   return `${header}\n${dialogue.join("\n")}\n`;
 }
 
+// ---- UGC captions: 2-4 words at a time, timed evenly across each scene's
+// narration (mirrors chunkUgcCaptions in supabase/functions/_shared/ugc.ts).
+function chunkUgcCaptions(text, startMs, endMs, wordsPerChunk = 3) {
+  const words = String(text ?? "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const span = Math.max(0, endMs - startMs);
+  if (words.length === 0 || span <= 0) return [];
+  const per = Math.max(1, Math.min(6, Math.round(wordsPerChunk)));
+  // Break early at punctuation so a group never straddles a clause.
+  const groups = [];
+  let cur = [];
+  for (const w of words) {
+    cur.push(w);
+    if (cur.length >= per || /[.,!?;:]$/.test(w)) { groups.push(cur.join(" ")); cur = []; }
+  }
+  if (cur.length) groups.push(cur.join(" "));
+  const weights = groups.map((g) => Math.max(1, g.length));
+  const total = weights.reduce((a, b) => a + b, 0);
+  let cursor = startMs;
+  return groups.map((g, i) => {
+    const dur = i === groups.length - 1 ? endMs - cursor : Math.round((span * weights[i]) / total);
+    const chunk = { start_ms: cursor, end_ms: Math.min(endMs, cursor + dur), text: g };
+    cursor = chunk.end_ms;
+    return chunk;
+  });
+}
+
+// Creator-video caption track: big, bold, upper-case word groups sitting just
+// below centre so they never cover the mouth. Talking scenes caption the
+// narration; the end-card keeps its sign-off text.
+function buildUgcAss(scenes, width, height) {
+  const fs = Math.max(40, Math.round(height * 0.052));
+  const marginV = Math.round(height * 0.3);
+  const header =
+    `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${width}
+PlayResY: ${height}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Ugc,Arial,${fs},&H00FFFFFF,&H00000000,&H00000000,1,0,0,0,100,100,1,0,1,6,0,2,60,60,${marginV},1
+Style: Sign,Arial,${Math.round(fs * 0.8)},&H00FFFFFF,&H00000000,&H96000000,1,0,0,0,100,100,0,0,1,4,1,2,80,80,${Math.round(height * 0.1)},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
+  const lines = [];
+  for (const s of scenes || []) {
+    const narration = String(s.voiceover_text || "").trim();
+    if (narration) {
+      for (const c of chunkUgcCaptions(narration, Number(s.start_ms) || 0, Number(s.end_ms) || 0)) {
+        lines.push(`Dialogue: 0,${msToAss(c.start_ms)},${msToAss(c.end_ms)},Ugc,,0,0,0,,${assEscape(c.text).toUpperCase()}`);
+      }
+    } else if (s.on_screen_text && String(s.on_screen_text).trim()) {
+      lines.push(`Dialogue: 0,${msToAss(s.start_ms)},${msToAss(s.end_ms)},Sign,,0,0,0,,${assEscape(s.on_screen_text)}`);
+    }
+  }
+  return `${header}\n${lines.join("\n")}\n`;
+}
+
 function fmtDims(fmt) {
   const f = String(fmt || "").replace("x", ":");
   return f === "9:16" ? [1080, 1920] : f === "16:9" ? [1920, 1080] : [1080, 1080];
@@ -238,6 +299,109 @@ async function stockClip(src, outPath, durSec, w, h) {
     "-y", "-i", src, "-vf", vf, "-t", durSec.toFixed(3),
     "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20", outPath,
   ]);
+}
+
+// ---- UGC scene clips: each carries its own narration so the timeline is a
+// plain hard-cut concat (no crossfades — creators cut, they don't dissolve).
+// Narration that overruns its scene is sped up (video too, for talking heads,
+// so lips stay in sync) up to a small limit; beyond that the script is wrong
+// and the job fails with the scene named instead of shipping a clipped line.
+const UGC_MAX_TEMPO = 1.25;
+
+async function ugcFitTempo(audioPath, durSec, idx) {
+  if (!audioPath) return 1;
+  const voSec = await probeDuration(audioPath);
+  if (!Number.isFinite(voSec) || voSec <= durSec * 1.03) return 1;
+  const tempo = voSec / durSec;
+  if (tempo > UGC_MAX_TEMPO) {
+    throw new Error(`scene ${idx} narration runs ${voSec.toFixed(1)}s in a ${durSec.toFixed(1)}s scene — shorten the script for that scene`);
+  }
+  return tempo;
+}
+
+function ugcAudioChain(tempo, durSec) {
+  const speed = tempo > 1.001 ? `atempo=${tempo.toFixed(4)},` : "";
+  return `${speed}aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad,atrim=0:${durSec.toFixed(3)},asetpts=N/SR/TB`;
+}
+
+// Talking head: the S2V clip cover-cropped to the frame, frozen on its last
+// frame if the model came up short, cut to the scene. Audio is the per-scene
+// narration (the clip's own track if the coordinator sent none).
+async function ugcTalkingClip(videoSrc, audioSrc, outPath, durSec, w, h, idx) {
+  const tempo = await ugcFitTempo(audioSrc, durSec, idx);
+  const args = ["-y", "-i", videoSrc];
+  if (audioSrc) args.push("-i", audioSrc);
+  const speed = tempo > 1.001 ? `setpts=PTS/${tempo.toFixed(4)},` : "";
+  const v = `[0:v]${speed}scale=${w}:${h}:force_original_aspect_ratio=increase:flags=bicubic,crop=${w}:${h},fps=30,` +
+    `tpad=stop_mode=clone:stop_duration=${durSec.toFixed(3)},trim=0:${durSec.toFixed(3)},setpts=PTS-STARTPTS,setsar=1,format=yuv420p[v]`;
+  const a = `[${audioSrc ? 1 : 0}:a]${ugcAudioChain(tempo, durSec)}[a]`;
+  args.push("-filter_complex", `${v};${a}`, "-map", "[v]", "-map", "[a]", "-t", durSec.toFixed(3),
+    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20", "-c:a", "aac", "-b:a", "160k", outPath);
+  await runFfmpeg(args);
+}
+
+// Product b-roll. The coordinator sends a Wan motion clip (videoSrc) for every
+// b-roll shot; Wan caps at ~5s, so a clip shorter than its scene is slowed
+// (up to 1.8x) to fill it rather than frozen on the last frame. The Ken-Burns
+// still path remains only for the logo end-card (and older payloads).
+const UGC_MAX_SLOWDOWN = 1.8;
+
+async function ugcBrollClip(img, audioSrc, outPath, durSec, w, h, idx, videoSrc = null) {
+  const tempo = await ugcFitTempo(audioSrc, durSec, idx);
+  const frames = Math.max(2, Math.round(durSec * 30));
+  const zi = Math.round((w * 1.5) / 2) * 2, hi = Math.round((h * 1.5) / 2) * 2;
+  const args = ["-y", "-i", videoSrc || img];
+  if (audioSrc) args.push("-i", audioSrc);
+  let v;
+  if (videoSrc) {
+    const vidSec = await probeDuration(videoSrc);
+    const stretch = Number.isFinite(vidSec) && vidSec > 0.2 && vidSec < durSec ? Math.min(UGC_MAX_SLOWDOWN, durSec / vidSec) : 1;
+    const slow = stretch > 1.001 ? `setpts=PTS*${stretch.toFixed(4)},` : "";
+    v = `[0:v]${slow}scale=${w}:${h}:force_original_aspect_ratio=increase:flags=bicubic,crop=${w}:${h},fps=30,` +
+      `tpad=stop_mode=clone:stop_duration=${durSec.toFixed(3)},trim=0:${durSec.toFixed(3)},setpts=PTS-STARTPTS,setsar=1,format=yuv420p[v]`;
+  } else {
+    v = `[0:v]scale=${zi}:${hi}:force_original_aspect_ratio=increase,crop=${zi}:${hi},` +
+      `zoompan=z='min(zoom+0.0028,1.26)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${w}x${h}:fps=30,setsar=1,format=yuv420p[v]`;
+  }
+  const a = audioSrc
+    ? `[1:a]${ugcAudioChain(tempo, durSec)}[a]`
+    : `anullsrc=channel_layout=stereo:sample_rate=48000,atrim=0:${durSec.toFixed(3)},asetpts=N/SR/TB[a]`;
+  args.push("-filter_complex", `${v};${a}`, "-map", "[v]", "-map", "[a]", "-frames:v", String(frames), "-t", durSec.toFixed(3),
+    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20", "-c:a", "aac", "-b:a", "160k", outPath);
+  await runFfmpeg(args);
+}
+
+// Hard-cut concat of self-contained scene clips, then logo, captions and a
+// low music bed under the creator's voice.
+async function ugcAssemble(clips, outPath, w, h, musicPath, assPath, logoPath, total, duckDb) {
+  const n = clips.length;
+  const args = ["-y"];
+  clips.forEach((c) => args.push("-i", c));
+  const musicIdx = musicPath ? n : null;
+  if (musicPath) args.push("-i", musicPath);
+  const logoIdx = logoPath ? n + (musicPath ? 1 : 0) : null;
+  if (logoPath) args.push("-i", logoPath);
+  const fc = [];
+  fc.push(`${clips.map((_, i) => `[${i}:v][${i}:a]`).join("")}concat=n=${n}:v=1:a=1[vcat][acat]`);
+  let last = "vcat";
+  if (logoIdx != null) {
+    const lw = Math.round(w * 0.14), m = Math.round(w * 0.04);
+    fc.push(`[${logoIdx}:v]scale=${lw}:-1[lg]`, `[${last}][lg]overlay=x=W-w-${m}:y=${m}:format=auto[vlogo]`);
+    last = "vlogo";
+  }
+  if (assPath) { fc.push(`[${last}]subtitles=${assPath}[vout]`); last = "vout"; }
+  let aout = "acat";
+  if (musicIdx != null) {
+    // Creators talk over quiet music: duck deeper than the cinematic default.
+    const duckLinear = Number.isFinite(duckDb) ? Math.max(0.02, Math.min(1, Math.pow(10, duckDb / 20))) : 0.14;
+    const fadeSt = Math.max(0, total - 1.5).toFixed(3);
+    fc.push(`[${musicIdx}:a]volume=${duckLinear.toFixed(3)},afade=t=out:st=${fadeSt}:d=1.5[ma]`);
+    fc.push(`[acat][ma]amix=inputs=2:duration=first:normalize=0[aout]`);
+    aout = "aout";
+  }
+  args.push("-filter_complex", fc.join(";"), "-map", `[${last}]`, "-map", `[${aout}]`, "-t", total.toFixed(3),
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "22", "-c:a", "aac", "-b:a", "128k", outPath);
+  await runFfmpeg(args);
 }
 
 // Audio graph shared by both render paths. Voiceover is mixed at full level with
@@ -755,7 +919,9 @@ async function processVideoJob(p) {
     // than surfacing a retryable render error.
     let voicePath = null;
     let voiceMeta = null;
-    if (p.voiceover_enabled && !p.voiceover_url) {
+    // UGC narration is per scene (scenes[].audio_url), not one track.
+    const isUgc = p.render_style === "ugc";
+    if (p.voiceover_enabled && !p.voiceover_url && !isUgc) {
       throw new Error("voiceover enabled but voiceover_url is missing");
     }
     if (p.voiceover_url) {
@@ -775,7 +941,7 @@ async function processVideoJob(p) {
     let assPath = null;
     if (p.captions_enabled && sorted.some((s) => s.on_screen_text && String(s.on_screen_text).trim())) {
       assPath = join(dir, "captions.ass");
-      await writeFile(assPath, buildAss(sorted, width, height));
+      await writeFile(assPath, isUgc ? buildUgcAss(sorted, width, height) : buildAss(sorted, width, height));
     }
     let musicPath = null;
     if (p.music_enabled !== false && !p.music_url) {
@@ -848,10 +1014,48 @@ async function processVideoJob(p) {
     let transitionPlan = [];
     let cinematicFallback = null;
 
+    // UGC: creator on camera (S2V clips) hard-cut with product b-roll, each
+    // scene carrying its own narration. No silent fallback to cinematic: a
+    // pan over the creator's still is not a UGC ad, so the job fails with the
+    // reason instead. B-roll without a clip (real site captures, the logo
+    // end-card) gets a slow push-in on the still.
+    if (isUgc) {
+      await reportStatus(jobId, projectId, { progress: 40, current_step: "ugc_assemble" });
+      const audioFiles = [];
+      for (const s of scenePaths) {
+        let af = null;
+        if (s.audio_url) {
+          const ar = await fetchWithTimeout(s.audio_url);
+          if (!ar.ok) throw new Error(`scene ${s.idx} narration download ${ar.status}`);
+          af = join(dir, `vo-${s.idx}.mp3`);
+          await writeFile(af, Buffer.from(await ar.arrayBuffer()));
+        }
+        audioFiles.push(af);
+      }
+      const talkingMissing = scenePaths.filter((s) => s.shot === "talking_head" && !s.videoFile);
+      if (talkingMissing.length) {
+        throw new Error(`talking-head clip missing for scene ${talkingMissing.map((s) => s.idx).join(", ")}`);
+      }
+      const clips = [];
+      for (let i = 0; i < scenePaths.length; i++) {
+        const s = scenePaths[i];
+        const cp = join(dir, `ugc-clip-${i}.mp4`);
+        if (s.shot === "talking_head") {
+          await ugcTalkingClip(s.videoFile, audioFiles[i], cp, durs[i], width, height, s.idx);
+        } else {
+          await ugcBrollClip(s.file, audioFiles[i], cp, durs[i], width, height, s.idx, s.videoFile);
+        }
+        clips.push(cp);
+      }
+      const total = durs.reduce((a, b) => a + b, 0);
+      await ugcAssemble(clips, outPath, width, height, musicPath, assPath, logoPath, total, Number(p.audio?.ducking?.duck_db));
+      renderStyle = "ugc";
+    }
+
     // Premium: generated per-scene motion clips joined with crossfades. This
     // branch has no slideshow fallback: a missing/broken clip must fail the
     // Premium job rather than masquerade as Standard.
-    if (isPremiumMotion) {
+    if (isPremiumMotion && !isUgc) {
       await reportStatus(jobId, projectId, { progress: 40, current_step: "premium_motion_assemble" });
       const missing = scenePaths.filter((s) => !s.videoFile && !s.endcard);
       if (missing.length) throw new Error(`Premium motion clips missing for scene ${missing.map((s) => s.idx).join(", ")}`);
@@ -870,7 +1074,7 @@ async function processVideoJob(p) {
       renderStyle = "premium_motion";
     }
 
-    if (!isPremiumMotion) try {
+    if (!isPremiumMotion && !isUgc) try {
       motionPlan = planMotionTreatments(scenePaths);
       transitionPlan = planTransitions(scenePaths).map((t, i) => ({
         ...t,
