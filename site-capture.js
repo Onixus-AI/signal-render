@@ -116,3 +116,15 @@ export function pickFocusOffset(headings, focusText, fallbackY) {
   }
   return best ? { y: Math.max(0, Math.round(best.top - 80)), match: best.text } : { y: fallbackY, match: null };
 }
+
+/**
+ * The document window a strip covers: it starts at the focus offset (clamped
+ * so at least one full screen fits), and on a page shorter than the requested
+ * strip it is shortened rather than slid back to the top.
+ */
+export function stripWindow(startY, screenH, screens, docH) {
+  const doc = Math.max(screenH, Number(docH) || 0);
+  const y = Math.max(0, Math.min(Math.round(startY) || 0, doc - screenH));
+  const height = Math.max(screenH, Math.min(screenH * screens, doc - y));
+  return { y, height };
+}

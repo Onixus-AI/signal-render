@@ -29,7 +29,7 @@ import {
   planTransitions,
   transitionDuration,
 } from "./motion-director.js";
-import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedHosts, pickFocusOffset } from "./site-capture.js";
+import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedHosts, pickFocusOffset, stripWindow } from "./site-capture.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(__dirname, "templates");
@@ -878,6 +878,21 @@ app.post("/screenshot-url", auth, async (req, res) => {
     if (looksLikeBotChallenge(pageText[0], pageText[1])) {
       return res.status(502).json({ error: "bot_challenge_page", message: "site served a bot-check page instead of content" });
     }
+    // Walk the page first (strips only) so lazy images and injected sections
+    // have loaded and the layout is final before anything is measured.
+    let docH = 0;
+    if (o.stripScreens > 1) {
+      docH = await page.evaluate(async (maxH) => {
+        const step = Math.round(window.innerHeight / 2);
+        for (let p = 0; p < Math.min(document.documentElement.scrollHeight, maxH); p += step) {
+          window.scrollTo(0, p);
+          await new Promise((r) => setTimeout(r, 120));
+        }
+        window.scrollTo(0, 0);
+        return document.documentElement.scrollHeight;
+      }, o.height * 10);
+      if (o.settleMs > 0) await new Promise((r) => setTimeout(r, o.settleMs));
+    }
     // Start at the section that matches the spoken line, when one does.
     let startY = o.scrollY;
     let focusMatch = null;
@@ -892,22 +907,12 @@ app.post("/screenshot-url", auth, async (req, res) => {
     }
     let buffer;
     if (o.stripScreens > 1) {
-      // Tall strip for animated scroll: walk the page once so lazy content
-      // and scroll-reveal animations have fired, then clip the document.
-      const docH = await page.evaluate(async (y, h) => {
-        for (let p = y; p < y + h; p += Math.round(window.innerHeight / 2)) {
-          window.scrollTo(0, p);
-          await new Promise((r) => setTimeout(r, 120));
-        }
-        window.scrollTo(0, 0);
-        return document.documentElement.scrollHeight;
-      }, startY, o.height * o.stripScreens);
-      if (o.settleMs > 0) await new Promise((r) => setTimeout(r, o.settleMs));
-      const h = Math.min(o.height * o.stripScreens, Math.max(o.height, docH));
-      const y = Math.max(0, Math.min(startY, docH - h));
+      // Keep the start on the matched section; on a short page shorten the
+      // strip (never below one screen) instead of sliding it back to the top.
+      const { y, height } = stripWindow(startY, o.height, o.stripScreens, docH);
       buffer = await page.screenshot({
         type: o.type, ...(o.type === "jpeg" ? { quality: 90 } : {}),
-        clip: { x: 0, y, width: o.width, height: h }, captureBeyondViewport: true,
+        clip: { x: 0, y, width: o.width, height }, captureBeyondViewport: true,
       });
     } else {
       if (startY > 0) await page.evaluate((y) => window.scrollTo(0, y), startY);

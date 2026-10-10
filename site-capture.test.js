@@ -9,6 +9,7 @@ import {
   looksLikeBotChallenge,
   pickFocusOffset,
   scoreHeading,
+  stripWindow,
   parseAllowedHosts,
 } from "./site-capture.js";
 
@@ -76,4 +77,15 @@ test("site captures render as a phone-framed scroll in UGC ads", async () => {
   assert.match(source, /async function siteScrollClip\(/);
   assert.match(source, /else if \(s\.site_capture && !s\.videoFile\)/);
   assert.match(source, /captureBeyondViewport: true/);
+});
+
+test("strip window keeps the matched section at the top, even on short pages", () => {
+  // 3-screen request on a 2.5-screen page, heading 1.2 screens down.
+  assert.deepEqual(stripWindow(1150, 960, 3, 2400), { y: 1150, height: 1250 });
+  // Heading near the very bottom: clamp so one full screen still fits.
+  assert.deepEqual(stripWindow(2300, 960, 3, 2400), { y: 1440, height: 960 });
+  // Long page: full three screens from the heading.
+  assert.deepEqual(stripWindow(1000, 960, 3, 9000), { y: 1000, height: 2880 });
+  // Unknown height: one screen from the top.
+  assert.deepEqual(stripWindow(0, 960, 3, 0), { y: 0, height: 960 });
 });
