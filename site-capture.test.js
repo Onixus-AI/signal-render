@@ -77,6 +77,8 @@ test("site captures render as a phone-framed scroll in UGC ads", async () => {
   assert.match(source, /async function siteScrollClip\(/);
   assert.match(source, /else if \(s\.site_capture && !s\.videoFile\)/);
   assert.match(source, /captureBeyondViewport: true/);
+  // The strip's own window is scrolled through before capture.
+  assert.match(source, /walk the chosen window itself/);
 });
 
 test("strip window keeps the matched section at the top, even on short pages", () => {

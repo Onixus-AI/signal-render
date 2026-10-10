@@ -910,6 +910,17 @@ app.post("/screenshot-url", auth, async (req, res) => {
       // Keep the start on the matched section; on a short page shorten the
       // strip (never below one screen) instead of sliding it back to the top.
       const { y, height } = stripWindow(startY, o.height, o.stripScreens, docH);
+      // The first walk stops at 10 screens; walk the chosen window itself so a
+      // section further down has loaded its lazy content too.
+      await page.evaluate(async (from, to) => {
+        const step = Math.round(window.innerHeight / 2);
+        for (let p = from; p <= to; p += step) {
+          window.scrollTo(0, p);
+          await new Promise((r) => setTimeout(r, 120));
+        }
+        window.scrollTo(0, 0);
+      }, y, y + height - o.height);
+      if (o.settleMs > 0) await new Promise((r) => setTimeout(r, Math.min(o.settleMs, 600)));
       buffer = await page.screenshot({
         type: o.type, ...(o.type === "jpeg" ? { quality: 90 } : {}),
         clip: { x: 0, y, width: o.width, height }, captureBeyondViewport: true,
