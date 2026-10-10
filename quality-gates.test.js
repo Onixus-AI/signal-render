@@ -105,4 +105,6 @@ test("UGC assembles per-scene narration instead of one voiceover track", () => {
   assert.match(source, /talking-head clip missing for scene/);
   assert.match(source, /await ugcAssemble\(/);
   assert.match(source, /if \(isPremiumMotion && !isUgc\)/);
+  // The UGC caption track is written for narration-only scenes too.
+  assert.match(source, /isUgc \? s\.voiceover_text \|\| s\.on_screen_text : s\.on_screen_text/);
 });

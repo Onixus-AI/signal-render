@@ -939,7 +939,10 @@ async function processVideoJob(p) {
       voicePath = voiceMeta.path;
     }
     let assPath = null;
-    if (p.captions_enabled && sorted.some((s) => s.on_screen_text && String(s.on_screen_text).trim())) {
+    // UGC captions are timed from the narration, so a narration-only scene
+    // still needs the track.
+    const captionSource = (s) => (isUgc ? s.voiceover_text || s.on_screen_text : s.on_screen_text);
+    if (p.captions_enabled && sorted.some((s) => captionSource(s) && String(captionSource(s)).trim())) {
       assPath = join(dir, "captions.ass");
       await writeFile(assPath, isUgc ? buildUgcAss(sorted, width, height) : buildAss(sorted, width, height));
     }
