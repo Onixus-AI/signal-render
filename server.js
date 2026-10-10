@@ -922,7 +922,8 @@ app.post("/screenshot-url", auth, async (req, res) => {
     }
     res.setHeader("Content-Type", o.type === "png" ? "image/png" : "image/jpeg");
     res.setHeader("X-Final-Url", page.url());
-    if (focusMatch) res.setHeader("X-Focus-Match", encodeURIComponent(focusMatch).slice(0, 300));
+    // Truncate before encoding so no percent-escape is cut in half.
+    if (focusMatch) res.setHeader("X-Focus-Match", encodeURIComponent(focusMatch.slice(0, 100)));
     res.send(Buffer.from(buffer));
   } catch (err) {
     console.error("screenshot-url failed:", err);
