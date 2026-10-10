@@ -914,8 +914,9 @@ app.post("/screenshot-url", auth, async (req, res) => {
       // section further down has loaded its lazy content too.
       await page.evaluate(async (from, to) => {
         const step = Math.round(window.innerHeight / 2);
-        for (let p = from; p <= to; p += step) {
-          window.scrollTo(0, p);
+        // Visit every half-screen stop, then the exact last screen.
+        for (let p = from; p < to + step; p += step) {
+          window.scrollTo(0, Math.min(p, to));
           await new Promise((r) => setTimeout(r, 120));
         }
         window.scrollTo(0, 0);
