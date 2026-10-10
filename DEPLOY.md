@@ -7,6 +7,7 @@ Stateless render worker for Signal. One Railway service, three jobs:
 | `POST /render-video` | `Authorization: Bearer RENDER_TOKEN` | Scene stills/stock + voiceover + music → MP4 + thumbnail, uploaded via signed PUTs, completion POSTed to `signal-video-complete` | `signal-video-render` edge function |
 | `POST /render` | `Authorization: Bearer RENDER_TOKEN` | Bundled HTML template (`templates/<name>/index.html`) + params → branded PNG/JPEG | `signal-render-template`, `signal-render-carousel` |
 | `POST /render-html` | `x-render-token: RENDER_HTML_TOKEN` (open if unset) | Arbitrary HTML/CSS → PNG/JPEG (replaces the PageShot API for TWIN stills) | TWIN still-image workflow |
+| `POST /screenshot-url` | `Authorization: Bearer RENDER_TOKEN` | Real page on an allowlisted host → PNG/JPEG (1080×1920 phone frame by default) | `signal-video-generate-scenes` (TWIN UGC site b-roll) |
 | `GET /health` | none | Readiness flags | `signal-render-diag`, Railway |
 | `GET /templates` | bearer | Lists bundled template names | ops |
 
@@ -23,7 +24,8 @@ Stateless render worker for Signal. One Railway service, three jobs:
 | `RENDER_TOKEN` | **yes** | Shared secret. Must equal the Supabase secret `RENDER_TOKEN`. Authenticates `/render-video`, `/render`, `/templates`, and is the bearer the worker sends to `signal-video-complete`. |
 | `SUPABASE_URL` | **yes** | Project URL. Without it renders finish but never report completion, so jobs sit in `rendering` forever. |
 | `RENDER_HTML_TOKEN` | recommended | Secret for `/render-html`. **When unset the endpoint is open to the internet** and will render any HTML / fetch any URL it's given. Set it, and send it as `x-render-token` from the caller. |
-| `MAX_HTML_CONCURRENCY` | no (default 2) | Simultaneous Chromium pages across `/render` + `/render-html`. Keep small on a 1‑vCPU box. |
+| `MAX_HTML_CONCURRENCY` | no (default 2) | Simultaneous Chromium pages across `/render`, `/render-html` and `/screenshot-url`. Keep small on a 1‑vCPU box. |
+| `SCREENSHOT_ALLOWED_HOSTS` | no (default `onixus.xyz,www.onixus.xyz`) | Comma-separated exact hostnames `/screenshot-url` may load. Every top-level navigation (redirects included) is checked against it. |
 | `CHROMIUM_PATH` | no | Set by the Dockerfile. Only needed if the binary is somewhere unusual. |
 | `PORT` | no (8080) | |
 

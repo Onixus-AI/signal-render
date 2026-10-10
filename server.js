@@ -9,7 +9,9 @@
 //   SUPABASE_URL          (required) — used to build the status callback endpoint.
 //   RENDER_HTML_TOKEN     (optional) — separate secret for /render-html; open when unset.
 //   CHROMIUM_PATH         (optional) — chromium binary; resolved from PATH when unset.
-//   MAX_HTML_CONCURRENCY  (default 2) — simultaneous Chromium pages across /render + /render-html.
+//   MAX_HTML_CONCURRENCY  (default 2) — simultaneous Chromium pages across /render, /render-html
+//                                      and /screenshot-url.
+//   SCREENSHOT_ALLOWED_HOSTS (default onixus.xyz,www.onixus.xyz) — the only hosts /screenshot-url loads.
 //   PORT                  (default 8080)
 
 import express from "express";
@@ -27,6 +29,7 @@ import {
   planTransitions,
   transitionDuration,
 } from "./motion-director.js";
+import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedHosts } from "./site-capture.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(__dirname, "templates");
@@ -57,6 +60,7 @@ const RENDER_TOKEN = process.env.RENDER_TOKEN;
 // Trimmed: tokens pasted from a terminal often carry a trailing newline, and
 // a stray "\n" on either side must not turn into a silent 401.
 const HTML_RENDER_TOKEN = (process.env.RENDER_HTML_TOKEN || "").trim() || undefined;
+const SCREENSHOT_HOSTS = parseAllowedHosts(process.env.SCREENSHOT_ALLOWED_HOSTS);
 // Chromium binary: honor CHROMIUM_PATH when it points at a real file, else
 // search PATH (Nixpacks puts it in /nix/store, Debian at /usr/bin). puppeteer
 // requires an absolute path that exists, so a bare "chromium" is resolved here.
@@ -618,6 +622,59 @@ app.post("/render-html", htmlAuth, async (req, res) => {
       error: "render_failed",
       message: String(err?.message || err).slice(0, 300),
     });
+  } finally {
+    if (page) await page.close().catch(() => {});
+    pageSlots.release();
+  }
+});
+
+// Real website -> PNG/JPEG. Used for b-roll that shows the actual product
+// (TWIN UGC ads screen-record onixus.xyz rather than inventing a UI). Bearer
+// RENDER_TOKEN, and only allowlisted hosts — see site-capture.js for why.
+app.post("/screenshot-url", auth, async (req, res) => {
+  const target = allowedCaptureUrl(req.body?.url, SCREENSHOT_HOSTS);
+  if (!target) {
+    return res.status(400).json({ error: "url must be https on an allowed host", allowed_hosts: SCREENSHOT_HOSTS });
+  }
+  const o = captureOptions(req.body || {});
+
+  let page = null;
+  await pageSlots.acquire();
+  try {
+    const browser = await getBrowser();
+    page = await browser.newPage();
+    await page.setViewport({ width: o.width, height: o.height, deviceScaleFactor: o.deviceScale, isMobile: o.mobile, hasTouch: o.mobile });
+    // Block any top-level navigation (redirects, meta refresh, JS location
+    // changes) that leaves the allowlist. Subresources — fonts, CDN images —
+    // still load so the page renders as visitors see it.
+    await page.setRequestInterception(true);
+    page.on("request", (r) => {
+      if (r.isNavigationRequest() && r.frame() === page.mainFrame() && !allowedCaptureUrl(r.url(), SCREENSHOT_HOSTS)) {
+        r.abort("blockedbyclient").catch(() => {});
+      } else {
+        r.continue().catch(() => {});
+      }
+    });
+    await page.goto(target, { waitUntil: "networkidle2", timeout: TIMEOUTS.html_render_ms });
+    if (!allowedCaptureUrl(page.url(), SCREENSHOT_HOSTS)) {
+      return res.status(400).json({ error: "page left the allowed hosts", final_url: page.url() });
+    }
+    const pageText = await page.evaluate(() => [document.title, document.body?.innerText ?? ""]);
+    if (looksLikeBotChallenge(pageText[0], pageText[1])) {
+      return res.status(502).json({ error: "bot_challenge_page", message: "site served a bot-check page instead of content" });
+    }
+    if (o.scrollY > 0) {
+      await page.evaluate((y) => window.scrollTo(0, y), o.scrollY);
+    }
+    // Let scroll-triggered reveals and lazy images finish.
+    if (o.settleMs > 0) await new Promise((r) => setTimeout(r, o.settleMs));
+    const buffer = await page.screenshot({ type: o.type, ...(o.type === "jpeg" ? { quality: 90 } : {}) });
+    res.setHeader("Content-Type", o.type === "png" ? "image/png" : "image/jpeg");
+    res.setHeader("X-Final-Url", page.url());
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error("screenshot-url failed:", err);
+    res.status(500).json({ error: "capture_failed", message: String(err?.message || err).slice(0, 300) });
   } finally {
     if (page) await page.close().catch(() => {});
     pageSlots.release();
