@@ -30,6 +30,7 @@ import {
   transitionDuration,
 } from "./motion-director.js";
 import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedHosts, pickFocusOffset, stripWindow } from "./site-capture.js";
+import { retimeScenes, ugcStretchDurations } from "./ugc-timing.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(__dirname, "templates");
@@ -1135,6 +1136,16 @@ async function processVideoJob(p) {
           await writeFile(af, Buffer.from(await ar.arrayBuffer()));
         }
         audioFiles.push(af);
+      }
+      // Fit scenes to the narration that was actually spoken: a line that
+      // runs long gets a longer scene (captions follow), not a failed job.
+      const voSecs = await Promise.all(audioFiles.map((f) => (f ? probeDuration(f) : NaN)));
+      const stretched = ugcStretchDurations(durs, voSecs);
+      if (stretched.some((d, i) => d !== durs[i])) {
+        durs.splice(0, durs.length, ...stretched);
+        const retimed = retimeScenes(sorted, durs);
+        if (assPath) await writeFile(assPath, buildUgcAss(retimed, width, height));
+        console.log(`[job ${jobId}] ugc scenes stretched to narration: ${durs.map((d) => d.toFixed(2)).join(", ")}s`);
       }
       const talkingMissing = scenePaths.filter((s) => s.shot === "talking_head" && !s.videoFile);
       if (talkingMissing.length) {
