@@ -67,7 +67,7 @@ test("Premium assembles supplied scene video clips", () => {
 
 test("Premium fails when required clips are missing and bypasses Standard motion", () => {
   assert.match(source, /Premium motion clips missing for scene/);
-  assert.match(source, /if \(!isPremiumMotion\) try/);
+  assert.match(source, /if \(!isPremiumMotion && !isUgc\) try/);
   assert.match(source, /else await stillMotionClip\(s\.file, cp, clipDurs\[i\], width, height, "hold"\)/);
 });
 
@@ -95,4 +95,16 @@ test("health endpoint and existing rendering gates remain present", () => {
   assert.match(source, /status_endpoint_configured/);
   assert.match(source, /renderStyle = "slideshow_fallback"/);
   assert.match(source, /final MP4 is missing the required audio stream/);
+});
+
+test("UGC assembles per-scene narration instead of one voiceover track", () => {
+  // UGC narration rides on scenes[].audio_url; requiring a global track failed
+  // every creator ad before it rendered a frame.
+  assert.match(source, /if \(p\.voiceover_enabled && !p\.voiceover_url && !isUgc\)/);
+  assert.match(source, /if \(isUgc\) \{\n      await reportStatus\(jobId, projectId, \{ progress: 40, current_step: "ugc_assemble" \}\)/);
+  assert.match(source, /talking-head clip missing for scene/);
+  assert.match(source, /await ugcAssemble\(/);
+  assert.match(source, /if \(isPremiumMotion && !isUgc\)/);
+  // The UGC caption track is written for narration-only scenes too.
+  assert.match(source, /isUgc \? s\.voiceover_text \|\| s\.on_screen_text : s\.on_screen_text/);
 });
