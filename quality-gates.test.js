@@ -34,9 +34,10 @@ test("every network call and ffmpeg pass is bounded", () => {
 test("chromium pages are rate-limited and the template endpoint is authenticated", () => {
   assert.match(source, /app\.post\("\/render", auth,/);
   assert.match(source, /app\.post\("\/render-html", htmlAuth,/);
-  // Both Chromium routes take and release a page slot.
-  assert.equal((source.match(/await pageSlots\.acquire\(\)/g) || []).length, 2);
-  assert.equal((source.match(/pageSlots\.release\(\)/g) || []).length, 2);
+  assert.match(source, /app\.post\("\/screenshot-url", auth,/);
+  // Every Chromium route takes and releases a page slot.
+  assert.equal((source.match(/await pageSlots\.acquire\(\)/g) || []).length, 3);
+  assert.equal((source.match(/pageSlots\.release\(\)/g) || []).length, 3);
   assert.match(source, /X-Img-Status/);
 });
 
@@ -47,7 +48,7 @@ test("terminal jobs are pruned", () => {
 
 test("screenshots are sent as raw bytes, not JSON", () => {
   // puppeteer >= 22 returns Uint8Array; res.send() must get a Buffer.
-  assert.equal((source.match(/res\.send\(Buffer\.from\(buffer\)\)/g) || []).length, 2);
+  assert.equal((source.match(/res\.send\(Buffer\.from\(buffer\)\)/g) || []).length, 3);
   assert.doesNotMatch(source, /res\.send\(buffer\)/);
 });
 

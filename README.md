@@ -24,6 +24,10 @@ Render features:
   Used by `signal-render-template` / `signal-render-carousel`.
 - `POST /render-html` — raw HTML → PNG/JPEG via headless Chromium. `x-render-token: RENDER_HTML_TOKEN`
   (open when unset — set it).
+- `POST /screenshot-url` — capture a real page (default: phone viewport → 1080×1920 PNG) for
+  b-roll that shows the actual product. Bearer `RENDER_TOKEN`. Only hosts in
+  `SCREENSHOT_ALLOWED_HOSTS` (default `onixus.xyz,www.onixus.xyz`) are loaded, on every navigation;
+  bot-check interstitials are rejected with 502.
 - `GET /health`, `GET /templates`.
 
 ## Deploy
