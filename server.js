@@ -29,7 +29,7 @@ import {
   planTransitions,
   transitionDuration,
 } from "./motion-director.js";
-import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedHosts } from "./site-capture.js";
+import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedHosts, pickFocusOffset, stripWindow } from "./site-capture.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(__dirname, "templates");
@@ -367,6 +367,57 @@ async function ugcBrollClip(img, audioSrc, outPath, durSec, w, h, idx, videoSrc 
     ? `[1:a]${ugcAudioChain(tempo, durSec)}[a]`
     : `anullsrc=channel_layout=stereo:sample_rate=48000,atrim=0:${durSec.toFixed(3)},asetpts=N/SR/TB[a]`;
   args.push("-filter_complex", `${v};${a}`, "-map", "[v]", "-map", "[a]", "-frames:v", String(frames), "-t", durSec.toFixed(3),
+    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20", "-c:a", "aac", "-b:a", "160k", outPath);
+  await runFfmpeg(args);
+}
+
+// Real website b-roll (TWIN founder ads): the captured page strip scrolls
+// smoothly inside a rounded phone frame on the brand's dark backdrop, instead
+// of a raw screenshot slapped full-frame between talking-head shots.
+const SITE_BG = "0x04040F";
+const SITE_BEZEL = "0x1C1C26";
+
+async function roundedMask(path, w, h, r) {
+  const R = Math.max(1, Math.min(r, Math.floor(Math.min(w, h) / 2) - 1));
+  const expr = `255*lte(hypot(max(0,abs(X-(W-1)/2)-((W-1)/2-${R})),max(0,abs(Y-(H-1)/2)-((H-1)/2-${R}))),${R})`;
+  await runFfmpeg(["-y", "-f", "lavfi", "-i", `color=c=black:s=${w}x${h}`, "-frames:v", "1",
+    "-vf", `format=gray,geq=lum='${expr}'`, path]);
+}
+
+async function siteScrollClip(img, audioSrc, outPath, durSec, w, h, idx, dir) {
+  const tempo = await ugcFitTempo(audioSrc, durSec, idx);
+  const even = (n) => Math.max(2, Math.round(n / 2) * 2);
+  const sw = even(w * 0.74);
+  const sh = even(Math.min(h * 0.82, sw * (h / w) * 0.92));
+  const pad = even(w * 0.018);
+  const bw = sw + pad * 2, bh = sh + pad * 2;
+  const screenMask = join(dir, `mask-screen-${idx}.png`);
+  const bodyMask = join(dir, `mask-body-${idx}.png`);
+  await roundedMask(screenMask, sw, sh, Math.round(sw * 0.07));
+  await roundedMask(bodyMask, bw, bh, Math.round(sw * 0.07) + pad);
+  const D = durSec.toFixed(3);
+  // Ease-in-out scroll from the top of the strip to its bottom over the shot.
+  const ease = `(0.5-0.5*cos(PI*min(t/${D},1)))`;
+  const args = ["-y",
+    "-f", "lavfi", "-i", `color=c=${SITE_BG}:s=${w}x${h}:r=30:d=${D}`,
+    "-f", "lavfi", "-i", `color=c=${SITE_BEZEL}:s=${bw}x${bh}:r=30:d=${D}`,
+    "-loop", "1", "-framerate", "30", "-t", D, "-i", img,
+    "-loop", "1", "-framerate", "30", "-t", D, "-i", screenMask,
+    "-loop", "1", "-framerate", "30", "-t", D, "-i", bodyMask,
+  ];
+  if (audioSrc) args.push("-i", audioSrc);
+  const ox = Math.round((w - bw) / 2), oy = Math.round((h - bh) / 2);
+  const v = [
+    `[2:v]scale=${sw}:-2,pad=${sw}:'max(ih,${sh})':0:0:color=white,crop=${sw}:${sh}:0:'(ih-oh)*${ease}',format=rgba[scr]`,
+    `[3:v]format=gray[sm]`, `[scr][sm]alphamerge[scrm]`,
+    `[4:v]format=gray[bm]`, `[1:v]format=rgba[body]`, `[body][bm]alphamerge[bodym]`,
+    `[0:v][bodym]overlay=${ox}:${oy}[b1]`,
+    `[b1][scrm]overlay=${ox + pad}:${oy + pad}:shortest=1,setsar=1,format=yuv420p[v]`,
+  ].join(";");
+  const a = audioSrc
+    ? `[5:a]${ugcAudioChain(tempo, durSec)}[a]`
+    : `anullsrc=channel_layout=stereo:sample_rate=48000,atrim=0:${D},asetpts=N/SR/TB[a]`;
+  args.push("-filter_complex", `${v};${a}`, "-map", "[v]", "-map", "[a]", "-t", D,
     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20", "-c:a", "aac", "-b:a", "160k", outPath);
   await runFfmpeg(args);
 }
@@ -827,14 +878,64 @@ app.post("/screenshot-url", auth, async (req, res) => {
     if (looksLikeBotChallenge(pageText[0], pageText[1])) {
       return res.status(502).json({ error: "bot_challenge_page", message: "site served a bot-check page instead of content" });
     }
-    if (o.scrollY > 0) {
-      await page.evaluate((y) => window.scrollTo(0, y), o.scrollY);
+    // Walk the page first (strips only) so lazy images and injected sections
+    // have loaded and the layout is final before anything is measured.
+    let docH = 0;
+    if (o.stripScreens > 1) {
+      docH = await page.evaluate(async (maxH) => {
+        const step = Math.round(window.innerHeight / 2);
+        for (let p = 0; p < Math.min(document.documentElement.scrollHeight, maxH); p += step) {
+          window.scrollTo(0, p);
+          await new Promise((r) => setTimeout(r, 120));
+        }
+        window.scrollTo(0, 0);
+        return document.documentElement.scrollHeight;
+      }, o.height * 10);
+      if (o.settleMs > 0) await new Promise((r) => setTimeout(r, o.settleMs));
     }
-    // Let scroll-triggered reveals and lazy images finish.
-    if (o.settleMs > 0) await new Promise((r) => setTimeout(r, o.settleMs));
-    const buffer = await page.screenshot({ type: o.type, ...(o.type === "jpeg" ? { quality: 90 } : {}) });
+    // Start at the section that matches the spoken line, when one does.
+    let startY = o.scrollY;
+    let focusMatch = null;
+    if (o.focusText) {
+      const headings = await page.evaluate(() =>
+        [...document.querySelectorAll("h1,h2,h3,h4,[role=heading]")]
+          .map((el) => ({ text: (el.innerText || "").trim().slice(0, 200), top: el.getBoundingClientRect().top + window.scrollY }))
+          .filter((h) => h.text));
+      const picked = pickFocusOffset(headings, o.focusText, o.scrollY);
+      startY = picked.y;
+      focusMatch = picked.match;
+    }
+    let buffer;
+    if (o.stripScreens > 1) {
+      // Keep the start on the matched section; on a short page shorten the
+      // strip (never below one screen) instead of sliding it back to the top.
+      const { y, height } = stripWindow(startY, o.height, o.stripScreens, docH);
+      // The first walk stops at 10 screens; walk the chosen window itself so a
+      // section further down has loaded its lazy content too.
+      await page.evaluate(async (from, to) => {
+        const step = Math.round(window.innerHeight / 2);
+        // Visit every half-screen stop, then the exact last screen.
+        for (let p = from; p < to + step; p += step) {
+          window.scrollTo(0, Math.min(p, to));
+          await new Promise((r) => setTimeout(r, 120));
+        }
+        window.scrollTo(0, 0);
+      }, y, y + height - o.height);
+      if (o.settleMs > 0) await new Promise((r) => setTimeout(r, Math.min(o.settleMs, 600)));
+      buffer = await page.screenshot({
+        type: o.type, ...(o.type === "jpeg" ? { quality: 90 } : {}),
+        clip: { x: 0, y, width: o.width, height }, captureBeyondViewport: true,
+      });
+    } else {
+      if (startY > 0) await page.evaluate((y) => window.scrollTo(0, y), startY);
+      // Let scroll-triggered reveals and lazy images finish.
+      if (o.settleMs > 0) await new Promise((r) => setTimeout(r, o.settleMs));
+      buffer = await page.screenshot({ type: o.type, ...(o.type === "jpeg" ? { quality: 90 } : {}) });
+    }
     res.setHeader("Content-Type", o.type === "png" ? "image/png" : "image/jpeg");
     res.setHeader("X-Final-Url", page.url());
+    // Truncate before encoding so no percent-escape is cut in half.
+    if (focusMatch) res.setHeader("X-Focus-Match", encodeURIComponent(focusMatch.slice(0, 100)));
     res.send(Buffer.from(buffer));
   } catch (err) {
     console.error("screenshot-url failed:", err);
@@ -1045,6 +1146,8 @@ async function processVideoJob(p) {
         const cp = join(dir, `ugc-clip-${i}.mp4`);
         if (s.shot === "talking_head") {
           await ugcTalkingClip(s.videoFile, audioFiles[i], cp, durs[i], width, height, s.idx);
+        } else if (s.site_capture && !s.videoFile) {
+          await siteScrollClip(s.file, audioFiles[i], cp, durs[i], width, height, s.idx, dir);
         } else {
           await ugcBrollClip(s.file, audioFiles[i], cp, durs[i], width, height, s.idx, s.videoFile);
         }

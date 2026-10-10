@@ -57,6 +57,11 @@ export function captureOptions(body = {}) {
     mobile: body.mobile !== false,
     type: body.format === "jpeg" || body.format === "jpg" ? "jpeg" : "png",
     settleMs: clamp(body.settle_ms, 0, 5_000, 1_200),
+    // A tall strip (N phone screens) for animated-scroll b-roll; 1 = a still.
+    stripScreens: clamp(body.strip_screens, 1, 4, 1),
+    // The line being spoken over this shot; the capture starts at the page
+    // section whose heading best matches it.
+    focusText: String(body.focus_text ?? "").slice(0, 300),
   };
 }
 
@@ -75,4 +80,51 @@ const CHALLENGE_PATTERNS = [
 export function looksLikeBotChallenge(title, text) {
   const hay = `${title ?? ""}\n${String(text ?? "").slice(0, 4000)}`;
   return CHALLENGE_PATTERNS.some((re) => re.test(hay));
+}
+
+const STOPWORDS = new Set([
+  "this", "that", "with", "from", "your", "have", "they", "what", "when", "then", "than", "into",
+  "just", "every", "here", "there", "their", "them", "will", "would", "about", "it's", "that's",
+  "onixus", "build", "built", "want", "need", "make", "makes", "does", "doing", "while",
+]);
+
+/** Meaningful lowercase words (4+ letters, no stopwords) of a spoken line. */
+export function focusTokens(text) {
+  const words = String(text ?? "").toLowerCase().match(/[a-z][a-z'-]{3,}/g) ?? [];
+  return [...new Set(words.filter((w) => !STOPWORDS.has(w)))];
+}
+
+/** How many of the line's words a heading contains (simple stems: leads/lead). */
+export function scoreHeading(heading, tokens) {
+  const h = String(heading ?? "").toLowerCase();
+  return tokens.reduce((n, t) => {
+    const stem = t.replace(/(ing|ed|es|s)$/, "");
+    return n + (stem.length >= 4 && h.includes(stem) ? 1 : 0);
+  }, 0);
+}
+
+/**
+ * Pick where the strip starts: the best-matching heading (a little above it so
+ * the heading is in frame), else the requested scroll offset.
+ */
+export function pickFocusOffset(headings, focusText, fallbackY) {
+  const tokens = focusTokens(focusText);
+  let best = null;
+  for (const h of headings ?? []) {
+    const score = scoreHeading(h.text, tokens);
+    if (score > 0 && (!best || score > best.score)) best = { ...h, score };
+  }
+  return best ? { y: Math.max(0, Math.round(best.top - 80)), match: best.text } : { y: fallbackY, match: null };
+}
+
+/**
+ * The document window a strip covers: it starts at the focus offset (clamped
+ * so at least one full screen fits), and on a page shorter than the requested
+ * strip it is shortened rather than slid back to the top.
+ */
+export function stripWindow(startY, screenH, screens, docH) {
+  const doc = Math.max(screenH, Number(docH) || 0);
+  const y = Math.max(0, Math.min(Math.round(startY) || 0, doc - screenH));
+  const height = Math.max(screenH, Math.min(screenH * screens, doc - y));
+  return { y, height };
 }

@@ -5,7 +5,11 @@ import {
   DEFAULT_SCREENSHOT_HOSTS,
   allowedCaptureUrl,
   captureOptions,
+  focusTokens,
   looksLikeBotChallenge,
+  pickFocusOffset,
+  scoreHeading,
+  stripWindow,
   parseAllowedHosts,
 } from "./site-capture.js";
 
@@ -47,4 +51,43 @@ test("bot-check interstitials are detected, real pages are not", () => {
   assert.equal(looksLikeBotChallenge("Just a moment...", ""), true);
   assert.equal(looksLikeBotChallenge("npm", "This page is displayed while the website verifies you are not a bot. security verification"), true);
   assert.equal(looksLikeBotChallenge("Onixus | AI Venture Studio", "We build, we grow, we automate. Executive, Manager and Worker bots."), false);
+});
+
+test("strip capture options are clamped", () => {
+  assert.equal(captureOptions({}).stripScreens, 1);
+  assert.equal(captureOptions({ strip_screens: 9 }).stripScreens, 4);
+  assert.equal(captureOptions({ focus_text: "x".repeat(900) }).focusText.length, 300);
+});
+
+test("the strip starts at the heading that matches the spoken line", () => {
+  const headings = [
+    { text: "Build, grow, automate", top: 0 },
+    { text: "Autopilot captures leads and follows up", top: 1800 },
+    { text: "How it works", top: 3400 },
+  ];
+  const line = "This is Autopilot. It captures leads, sends outreach and follows up.";
+  assert.deepEqual(pickFocusOffset(headings, line, 0), { y: 1720, match: "Autopilot captures leads and follows up" });
+  assert.deepEqual(pickFocusOffset(headings, "We delete the wasted steps first", 960), { y: 960, match: null });
+  assert.equal(scoreHeading("Follow-up that never sleeps", focusTokens("follows up on leads")), 1);
+  assert.ok(!focusTokens("This is what you want").length);
+});
+
+test("site captures render as a phone-framed scroll in UGC ads", async () => {
+  const source = await readFile(new URL("./server.js", import.meta.url), "utf8");
+  assert.match(source, /async function siteScrollClip\(/);
+  assert.match(source, /else if \(s\.site_capture && !s\.videoFile\)/);
+  assert.match(source, /captureBeyondViewport: true/);
+  // The strip's own window is scrolled through before capture.
+  assert.match(source, /walk the chosen window itself/);
+});
+
+test("strip window keeps the matched section at the top, even on short pages", () => {
+  // 3-screen request on a 2.5-screen page, heading 1.2 screens down.
+  assert.deepEqual(stripWindow(1150, 960, 3, 2400), { y: 1150, height: 1250 });
+  // Heading near the very bottom: clamp so one full screen still fits.
+  assert.deepEqual(stripWindow(2300, 960, 3, 2400), { y: 1440, height: 960 });
+  // Long page: full three screens from the heading.
+  assert.deepEqual(stripWindow(1000, 960, 3, 9000), { y: 1000, height: 2880 });
+  // Unknown height: one screen from the top.
+  assert.deepEqual(stripWindow(0, 960, 3, 0), { y: 0, height: 960 });
 });
