@@ -710,6 +710,7 @@ app.get("/health", async (_req, res) => {
     static_render: Boolean(chromiumOk && RENDER_TOKEN && templates.length > 0),
     templates,
     video_render: Boolean(ffmpegOk && RENDER_TOKEN),
+    ad_adaptation: 1,
     html_render: chromiumOk,
     html_render_auth_required: Boolean(HTML_RENDER_TOKEN),
     html_render_max_concurrency: MAX_HTML_CONCURRENCY,
