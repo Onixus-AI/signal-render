@@ -16,7 +16,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY server.js motion-director.js site-capture.js ugc-timing.js ./
+COPY server.js motion-director.js site-capture.js ugc-timing.js ad-adaptation.js ./
 COPY templates ./templates
 
 ENV NODE_ENV=production
