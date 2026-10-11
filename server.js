@@ -1,3 +1,4 @@
+import {AD_CANVASES,adaptationArgs,adaptationUrl} from './ad-adaptation.js';
 // signal-render — stateless video worker.
 // Uploads via signed-URL PUTs; reports status back through the authenticated
 // signal-video-complete edge function. Never talks to Supabase directly and
@@ -952,6 +953,43 @@ app.post("/screenshot-url", auth, async (req, res) => {
 // job (UI retries) are acknowledged without enqueueing a second render.
 let renderChain = Promise.resolve();
 
+// Adapt an approved master without TTS, diffusion, extra logos, music or captions.
+app.post('/adapt-ad', auth, (req,res)=>{
+ const p=req.body;
+ try{
+  if(!/^[0-9a-f-]{36}$/.test(p?.variant_id)||!/^[0-9a-f-]{36}$/.test(p?.attempt_id)||!AD_CANVASES[p.format]||!SUPABASE_URL)throw new Error('Invalid adaptation request');
+  adaptationUrl(p.source_url,SUPABASE_URL);
+  adaptationUrl(p.upload?.video,SUPABASE_URL,true);adaptationUrl(p.upload?.thumbnail,SUPABASE_URL,true);
+ }catch(e){return res.status(400).json({error:e.message});}
+ const key='adapt:'+p.attempt_id;
+ if(jobs.has(key))return res.status(202).json({ok:true,deduped:true});
+ jobs.set(key,{status:'queued'});res.status(202).json({ok:true,model_calls:0});
+ renderChain=renderChain.catch(()=>{}).then(async()=>{
+  jobs.set(key,{status:'rendering'});
+  const dir=await mkdtemp(join(tmpdir(),'ad-adapt-'));
+  const report=async(body)=>{
+   const r=await fetchWithTimeout(SUPABASE_URL.replace(/\/$/,'')+'/functions/v1/signal-ad-variants',{method:'POST',headers:{Authorization:'Bearer '+RENDER_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({action:'complete',variant_id:p.variant_id,attempt_id:p.attempt_id,client_id:p.client_id,...body})},30000);
+   if(!r.ok)throw new Error('Adaptation callback '+r.status);
+  };
+  try{
+   const r=await fetchWithTimeout(p.source_url,{},TIMEOUTS.download_ms);if(!r.ok)throw new Error('Master download failed');
+   if(Number(r.headers.get('content-length'))>200000000)throw new Error('Master exceeds adaptation size limit');
+   const bytes=Buffer.from(await r.arrayBuffer());if(bytes.length>200000000)throw new Error('Master exceeds adaptation size limit');
+   const source=join(dir,'master.mp4'),out=join(dir,'export.mp4'),thumb=join(dir,'thumb.jpg');await writeFile(source,bytes);
+   await runFfmpeg(adaptationArgs(source,out,p.format));
+   const duration=await probeDuration(out);
+   if(!Number.isFinite(p.duration_sec)||Math.abs(duration-p.duration_sec)>1.5)throw new Error('Adaptation changed master duration');
+   if(await probeHasAudio(source)&&!await probeHasAudio(out))throw new Error('Adaptation lost approved audio');
+   await runFfmpeg(['-y','-i',out,'-frames:v','1','-q:v','2',thumb]);
+   await putSigned(p.upload.video,await readFile(out),'video/mp4');await putSigned(p.upload.thumbnail,await readFile(thumb),'image/jpeg');
+   const [width,height]=AD_CANVASES[p.format];
+   await report({status:'rendered',output_path:p.output_path,thumbnail_path:p.thumbnail_path,duration_sec:duration,width,height});
+   jobs.set(key,{status:'done',finished_at:Date.now()});
+  }catch(e){await report({status:'failed',error:String(e.message).slice(0,500)}).catch(()=>{});jobs.set(key,{status:'failed',finished_at:Date.now()});}
+  finally{await rm(dir,{recursive:true,force:true});}
+ }).catch(e=>console.error('Adaptation pipeline failed',e.message));
+});
+
 app.post("/render-video", auth, (req, res) => {
   const payload = req.body;
   const err = validateVideoPayload(payload);
@@ -1350,3 +1388,4 @@ async function putSigned(url, bytes, contentType) {
 app.listen(PORT, () => {
   console.log(`signal-render worker listening on :${PORT} (status endpoint: ${STATUS_ENDPOINT || "unset"})`);
 });
+
