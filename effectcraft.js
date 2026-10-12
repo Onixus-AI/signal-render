@@ -18,7 +18,7 @@ import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { normalizeGraphic, wrapLines } from "./ugc-graphics.js";
+import { normalizeGraphic } from "./ugc-graphics.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const COMMAND_LOGO = join(HERE, "mograph", "command-logo.png");
@@ -43,43 +43,75 @@ const rgb = (hex) => {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255].map((v) => +v.toFixed(4));
 };
 
+// Split words into n lines with the longest line as short as possible, so a
+// headline never ends on a lone word ("…run themselves / now").
+export function balancedLines(text, n) {
+  const words = String(text ?? "").split(/\s+/).filter(Boolean);
+  if (n <= 1 || words.length <= 1) return [words.join(" ")];
+  let best = null;
+  const walk = (start, left, acc) => {
+    if (left === 1) {
+      const lines = [...acc, words.slice(start).join(" ")];
+      const worst = Math.max(...lines.map((l) => l.length));
+      if (!best || worst < best.worst) best = { lines, worst };
+      return;
+    }
+    for (let end = start + 1; end <= words.length - left + 1; end++) walk(end, left - 1, [...acc, words.slice(start, end).join(" ")]);
+  };
+  walk(0, Math.min(n, words.length), []);
+  return best.lines;
+}
+
+// Fewest balanced lines that fit maxChars, or null when even 3 do not.
+function fitHeadline(text, maxChars) {
+  for (let n = 1; n <= 3; n++) {
+    const lines = balancedLines(text, n);
+    if (Math.max(...lines.map((l) => l.length)) <= maxChars) return lines;
+  }
+  return null;
+}
+
+// Average advance of the bundled Inter faces, measured on CI renders.
+const HEAD_CHAR = 0.52, POINT_CHAR = 0.56;
+
 // Lay the beat out in pixels: logo block, headline lines, point rows, all
-// stacked and centred in the frame's safe area, shrunk until they fit.
+// stacked and centred in the frame's safe area. Type shrinks until every
+// word fits; nothing is ever cut.
 export function commandBeatLayout(graphic, w, h) {
   const g = normalizeGraphic(graphic);
   if (!g) return null;
   const u = Math.min(w, h) / 1080;
   const safeTop = h * 0.1, safeH = h * 0.78;
-  for (let k = 1; k >= 0.5; k -= 0.05) {
-    // Portrait has room to spare: a bigger mark and type fill the frame.
-    const tall = h > w * 1.2;
+  // Portrait has room to spare: a bigger mark and type fill the frame.
+  const tall = h > w * 1.2;
+  for (let k = 1; k >= 0.45; k -= 0.05) {
     const logoW = Math.round(Math.min(w * (tall ? 0.6 : 0.5), (tall ? 640 : 520) * u) * k);
     const logoH = Math.round(logoW * LOGO_SIZE[1] / LOGO_SIZE[0]);
     const hs = Math.round((tall ? 104 : 92) * u * k);
-    const maxChars = Math.max(8, Math.floor((w * 0.86) / (hs * 0.56)));
-    const lines = wrapLines(g.headline, maxChars);
+    const lines = fitHeadline(g.headline, Math.floor((w * 0.86) / (hs * HEAD_CHAR)));
     const ps = Math.round(hs * 0.56);
-    const pMax = Math.max(8, Math.floor((w * 0.78) / (ps * 0.55)));
-    const points = g.points.map((p) => wrapLines(p, pMax)[0]).filter(Boolean);
+    const pMax = Math.floor((w * 0.84 - ps * 0.7) / (ps * POINT_CHAR));
+    if (!lines || g.points.some((p) => p.length > pMax)) continue;
+    // Two lines read better than three when the smaller size still fills the frame.
+    if (lines.length === 3 && k > 0.8) continue;
     const lineH = Math.round(hs * 1.12), rowH = Math.round(ps * 1.9);
     const gap = Math.round(64 * u * k);
+    const points = g.points;
     const total = logoH + gap + lines.length * lineH + (points.length ? gap * 0.8 + points.length * rowH : 0);
-    if (lines.length <= 3 && total <= safeH) {
-      const top = safeTop + (safeH - total) / 2;
-      const headTop = top + logoH + gap;
-      const pointsTop = headTop + lines.length * lineH + gap * 0.8;
-      // Centre the points as a block under the centred headline.
-      const longest = Math.max(0, ...points.map((t) => t.length));
-      const blockW = ps * 0.7 + longest * ps * 0.5;
-      const pointsX = Math.round(Math.max(w * 0.06, (w - blockW) / 2));
-      return {
-        pointsX,
-        w, h, u, logo: { cx: w / 2, cy: top + logoH / 2, scale: logoW / LOGO_SIZE[0] },
-        hs, lineH, lines: lines.map((t, i) => ({ text: t, y: Math.round(headTop + i * lineH + hs * 0.82) })),
-        ps, rowH, points: points.map((t, i) => ({ text: t, y: Math.round(pointsTop + i * rowH + ps * 0.8) })),
-        underlineY: Math.round(headTop + lines.length * lineH + gap * 0.25),
-      };
-    }
+    if (total > safeH) continue;
+    const top = safeTop + (safeH - total) / 2;
+    const headTop = top + logoH + gap;
+    const pointsTop = headTop + lines.length * lineH + gap * 0.8;
+    // Centre the points as a block under the centred headline.
+    const longest = Math.max(0, ...points.map((t) => t.length));
+    const blockW = ps * 0.7 + longest * ps * POINT_CHAR;
+    const pointsX = Math.round(Math.max(w * 0.06, (w - blockW) / 2));
+    return {
+      w, h, u, logo: { cx: w / 2, cy: top + logoH / 2, scale: logoW / LOGO_SIZE[0] },
+      hs, lineH, lines: lines.map((t, i) => ({ text: t, y: Math.round(headTop + i * lineH + hs * 0.82) })),
+      ps, rowH, pointsX, points: points.map((t, i) => ({ text: t, y: Math.round(pointsTop + i * rowH + ps * 0.8) })),
+      underlineY: Math.round(headTop + lines.length * lineH + gap * 0.25),
+    };
   }
   return null;
 }

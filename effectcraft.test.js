@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { normalizeGraphic } from "./ugc-graphics.js";
-import { COMMAND_LOGO, commandBeatJsx, commandBeatLayout, commandBeatTiming, renderCommandBeat } from "./effectcraft.js";
+import { balancedLines, COMMAND_LOGO, commandBeatJsx, commandBeatLayout, commandBeatTiming, renderCommandBeat } from "./effectcraft.js";
 
 const G = { headline: "Your follow-ups run themselves now", points: ["Leads answered in minutes", "Invoices chased automatically", "Every job logged"] };
 
@@ -23,7 +23,7 @@ for (const [w, h] of [[1080, 1920], [1920, 1080], [1080, 1080]]) {
     for (let i = 1; i < L.lines.length; i++) assert.ok(L.lines[i].y > L.lines[i - 1].y);
     assert.ok(L.points[0].y > L.lines.at(-1).y);
     const longest = Math.max(...L.points.map((p) => p.text.length));
-    const mid = L.pointsX + (L.ps * 0.7 + longest * L.ps * 0.5) / 2;
+    const mid = L.pointsX + (L.ps * 0.7 + longest * L.ps * 0.56) / 2;
     assert.ok(Math.abs(mid - w / 2) < w * 0.02, `points centred (${mid} vs ${w / 2})`);
   });
 }
@@ -56,4 +56,19 @@ test("the generated script is valid JavaScript and carries the words as data", (
 test("without the CLI the beat reports failure instead of throwing", async () => {
   const r = await renderCommandBeat(G, "/tmp/never.mp4", { w: 1080, h: 1920, durSec: 3, dir: "/tmp", bin: null });
   assert.deepEqual(r, { ok: false, error: "effectcraft-cli not installed" });
+});
+
+test("headlines break into balanced lines, never a lone last word", () => {
+  assert.deepEqual(balancedLines("Your follow-ups run themselves now", 2), ["Your follow-ups", "run themselves now"]);
+  for (const [w, h] of [[1080, 1920], [1920, 1080], [1080, 1080]]) {
+    const L = commandBeatLayout(G, w, h);
+    if (L.lines.length > 1) assert.ok(L.lines.at(-1).text.split(" ").length > 1, `${w}x${h}: ${JSON.stringify(L.lines)}`);
+  }
+});
+
+test("points keep every word", () => {
+  for (const [w, h] of [[1080, 1920], [1920, 1080], [1080, 1080]]) {
+    const L = commandBeatLayout(G, w, h);
+    assert.deepEqual(L.points.map((p) => p.text), G.points);
+  }
 });
