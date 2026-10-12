@@ -69,3 +69,16 @@ test("name tags are written even when captions are off", async () => {
   assert.match(source, /const wantTags = isUgc && sorted\.some\(\(s\) => s\.lower_third\)/);
   assert.match(source, /if \(s\.graphic \|\| !captions\) continue;/);
 });
+
+test("a full graphic shrinks to fit the frame instead of running off the bottom", () => {
+  const g = { headline: "Your entire business runs while you sleep tonight", points: ["Captures every single inbound lead", "Follows up in minutes every time", "Books the call without you"] };
+  for (const [w, h] of [[1080, 1920], [1080, 1080], [1920, 1080]]) {
+    for (const seed of [0, 1, 2]) {
+      const ass = buildGraphicAss(g, 6000, w, h, {}, seed);
+      const pts = [...ass.matchAll(/,(?:Point|PointL|Chip),[^\n]*?(?:\\pos\(|\\move\()-?\d+,(\d+)/g)].map((m) => Number(m[1]));
+      assert.equal(pts.length, 3);
+      for (const y of pts) assert.ok(y < h * 0.95, `${w}x${h} seed ${seed}: point at y=${y}`);
+    }
+  }
+});
+

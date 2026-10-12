@@ -74,25 +74,37 @@ export function buildGraphicAss(graphic, durMs, w, h, colors = {}, seed = 0) {
   const accent = assColor(colors.accent || colors.primary);
   const accent2 = assColor(colors.secondary || colors.primary || colors.accent);
   const portrait = w < h;
-  const hs = Math.round(h * (portrait ? 0.066 : 0.09));
-  const ps = Math.round(hs * 0.6);
   const cx = Math.round(w / 2);
   const end = msToAss(durMs);
   const ev = glowEvents(durMs, w, h, accent, accent2);
-  const lineH = Math.round(hs * 1.08);
-  const pointStep = Math.round(ps * 1.9);
-  const maxChars = portrait ? 12 : 22;
-  const headLines = wrapLines(g.headline.toUpperCase(), maxChars);
-  // Points wrap to the frame width (a six-word point overflows a portrait
-  // frame on one line); each point's block grows with its line count.
-  const ptChars = Math.max(10, Math.floor((w * 0.82) / (ps * 0.56)));
-  const ptLines = g.points.map((p) => wrapLines(p, ptChars));
-  const ptLineH = Math.round(ps * 1.15);
-  const ptH = ptLines.map((l) => l.length * ptLineH);
-  const ptGap = pointStep - ptLineH;
-  const pointsH = ptH.reduce((a, b) => a + b, 0) + Math.max(0, g.points.length - 1) * ptGap;
-  const blockH = headLines.length * lineH + (g.points.length ? Math.round(hs * 0.9) + pointsH : 0);
-  const top = Math.max(Math.round(h * 0.16), Math.round((h - blockH) / 2 - h * 0.06));
+  // Lay the block out at a type size: headline and points both wrap to the
+  // frame's real width at that size, and each point's block grows with its
+  // line count.
+  const layout = (hs) => {
+    const headLines = wrapLines(g.headline.toUpperCase(), Math.max(8, Math.floor((w * 0.86) / (hs * 0.66))));
+    const ps = Math.round(hs * 0.6);
+    const lineH = Math.round(hs * 1.08);
+    const pointStep = Math.round(ps * 1.9);
+    const ptChars = Math.max(10, Math.floor((w * 0.82) / (ps * 0.56)));
+    const ptLines = g.points.map((p) => wrapLines(p, ptChars));
+    const ptLineH = Math.round(ps * 1.15);
+    const ptH = ptLines.map((l) => l.length * ptLineH);
+    const ptGap = pointStep - ptLineH;
+    const pointsH = ptH.reduce((a, b) => a + b, 0) + Math.max(0, g.points.length - 1) * ptGap;
+    const blockH = headLines.length * lineH + (g.points.length ? Math.round(hs * 0.9) + pointsH : 0);
+    return { hs, ps, lineH, headLines, ptLines, ptH, ptGap, blockH };
+  };
+  // Shrink the type until the whole block fits the frame's safe area, so a
+  // long headline plus three wrapped points never runs off the bottom.
+  const safeH = h * 0.84;
+  let L = layout(Math.round(h * (portrait ? 0.066 : w === h ? 0.075 : 0.09)));
+  for (let k = 0; k < 4 && L.blockH > safeH; k++) L = layout(Math.max(12, Math.floor(L.hs * (safeH / L.blockH))));
+  const { hs, ps, lineH, headLines, ptLines, ptH, ptGap, blockH } = L;
+  // A little above centre; never above 16% when there is room, and never so
+  // low that the block runs past 92% of the frame.
+  const maxTop = Math.max(Math.round(h * 0.08), Math.round(h * 0.92 - blockH));
+  const minTop = Math.min(Math.round(h * 0.16), maxTop);
+  const top = Math.min(maxTop, Math.max(minTop, Math.round((h - blockH) / 2 - h * 0.06)));
   const headBottom = top + headLines.length * lineH;
   const pointTop = (i) => headBottom + Math.round(hs * 0.9) + ptH.slice(0, i).reduce((a, b) => a + b, 0) + i * ptGap;
   const pointsAt = (i) => pointTop(i) + Math.round(ptH[i] / 2);
