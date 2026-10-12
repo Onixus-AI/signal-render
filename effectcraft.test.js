@@ -22,6 +22,9 @@ for (const [w, h] of [[1080, 1920], [1920, 1080], [1080, 1080]]) {
     assert.ok(bottom <= h * 0.88 + 1, `bottom ${bottom}`);
     for (let i = 1; i < L.lines.length; i++) assert.ok(L.lines[i].y > L.lines[i - 1].y);
     assert.ok(L.points[0].y > L.lines.at(-1).y);
+    const longest = Math.max(...L.points.map((p) => p.text.length));
+    const mid = L.pointsX + (L.ps * 0.7 + longest * L.ps * 0.5) / 2;
+    assert.ok(Math.abs(mid - w / 2) < w * 0.02, `points centred (${mid} vs ${w / 2})`);
   });
 }
 

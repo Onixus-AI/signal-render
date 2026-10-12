@@ -51,9 +51,11 @@ export function commandBeatLayout(graphic, w, h) {
   const u = Math.min(w, h) / 1080;
   const safeTop = h * 0.1, safeH = h * 0.78;
   for (let k = 1; k >= 0.5; k -= 0.05) {
-    const logoW = Math.round(Math.min(w * 0.5, 520 * u) * k);
+    // Portrait has room to spare: a bigger mark and type fill the frame.
+    const tall = h > w * 1.2;
+    const logoW = Math.round(Math.min(w * (tall ? 0.6 : 0.5), (tall ? 640 : 520) * u) * k);
     const logoH = Math.round(logoW * LOGO_SIZE[1] / LOGO_SIZE[0]);
-    const hs = Math.round(92 * u * k);
+    const hs = Math.round((tall ? 104 : 92) * u * k);
     const maxChars = Math.max(8, Math.floor((w * 0.86) / (hs * 0.56)));
     const lines = wrapLines(g.headline, maxChars);
     const ps = Math.round(hs * 0.56);
@@ -66,7 +68,12 @@ export function commandBeatLayout(graphic, w, h) {
       const top = safeTop + (safeH - total) / 2;
       const headTop = top + logoH + gap;
       const pointsTop = headTop + lines.length * lineH + gap * 0.8;
+      // Centre the points as a block under the centred headline.
+      const longest = Math.max(0, ...points.map((t) => t.length));
+      const blockW = ps * 0.7 + longest * ps * 0.5;
+      const pointsX = Math.round(Math.max(w * 0.06, (w - blockW) / 2));
       return {
+        pointsX,
         w, h, u, logo: { cx: w / 2, cy: top + logoH / 2, scale: logoW / LOGO_SIZE[0] },
         hs, lineH, lines: lines.map((t, i) => ({ text: t, y: Math.round(headTop + i * lineH + hs * 0.82) })),
         ps, rowH, points: points.map((t, i) => ({ text: t, y: Math.round(pointsTop + i * rowH + ps * 0.8) })),
@@ -236,7 +243,7 @@ guard("rule", function () {
 for (var j = 0; j < D.L.points.length; j++) {
   var pt = D.L.points[j];
   var t = D.T.pointsStart + j * D.T.stagger;
-  var x0 = D.w * 0.14;
+  var x0 = D.L.pointsX;
   var bullet = comp.layers.addShape();
   bullet.name = "Bullet " + (j + 1);
   var bg2 = bullet.property("ADBE Root Vectors Group").addProperty("ADBE Vector Group");
