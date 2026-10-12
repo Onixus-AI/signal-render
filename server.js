@@ -383,7 +383,7 @@ async function ugcBrollClip(img, audioSrc, outPath, durSec, w, h, idx, videoSrc 
 // the scene's narration like every other UGC clip.
 async function ugcGraphicClip(graphic, colors, audioSrc, outPath, durSec, w, h, idx, dir) {
   const tempo = await ugcFitTempo(audioSrc, durSec, idx);
-  const ass = buildGraphicAss(graphic, Math.round(durSec * 1000), w, h, colors);
+  const ass = buildGraphicAss(graphic, Math.round(durSec * 1000), w, h, colors, idx);
   if (!ass) throw new Error(`scene ${idx} motion graphic has no headline`);
   const assPath = join(dir, `graphic-${idx}.ass`);
   await writeFile(assPath, ass);

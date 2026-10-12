@@ -43,44 +43,102 @@ export function normalizeGraphic(g) {
   return headline ? { headline, points } : null;
 }
 
+/** Soft accent glows that drift behind every layout, so a graphic never sits flat. */
+function glowEvents(durMs, w, h, accent, accent2) {
+  const end = msToAss(durMs);
+  const r = Math.round(Math.min(w, h) * 0.42);
+  const circle = (rad) => `m ${rad} 0 b ${rad * 1.55} 0 ${rad * 2} ${rad * 0.45} ${rad * 2} ${rad} b ${rad * 2} ${rad * 1.55} ${rad * 1.55} ${rad * 2} ${rad} ${rad * 2} b ${rad * 0.45} ${rad * 2} 0 ${rad * 1.55} 0 ${rad} b 0 ${rad * 0.45} ${rad * 0.45} 0 ${rad} 0`;
+  const t = Math.max(1, durMs);
+  return [
+    `Dialogue: 0,${msToAss(0)},${end},Gfx,,0,0,0,,{\\an7\\move(${Math.round(-r * 0.6)},${Math.round(h * 0.08)},${Math.round(-r * 0.3)},${Math.round(h * 0.16)},0,${t})\\1c${accent}\\1a&HB4&\\blur${Math.round(r * 0.35)}\\bord0\\shad0\\p1}${circle(r)}{\\p0}`,
+    `Dialogue: 0,${msToAss(0)},${end},Gfx,,0,0,0,,{\\an7\\move(${Math.round(w - r * 1.2)},${Math.round(h * 0.58)},${Math.round(w - r * 1.5)},${Math.round(h * 0.5)},0,${t})\\1c${accent2}\\1a&HC8&\\blur${Math.round(r * 0.35)}\\bord0\\shad0\\p1}${circle(Math.round(r * 0.8))}{\\p0}`,
+  ];
+}
+
+/** Which of the three layouts a beat uses; rotates so consecutive graphics differ. */
+export function graphicVariant(seed) {
+  return ["kinetic", "highlight", "chips"][Math.abs(Number(seed) || 0) % 3];
+}
+
 /**
- * Full-frame graphic beat: an accent bar draws in, the headline punches up
- * into place, then each point slides in on its own beat. Brand accent colour,
- * white type, on the dark backdrop the clip is rendered over.
+ * Full-frame motion-graphic beat over the brand's dark backdrop, drawn as
+ * animated ASS so the words are exact. Three layouts:
+ *  - kinetic:   the headline lands word by word, the key word in the accent;
+ *  - highlight: left-aligned headline with an accent marker wiping in behind it;
+ *  - chips:     big centred headline, points pop in as outlined pills.
  */
-export function buildGraphicAss(graphic, durMs, w, h, colors = {}) {
+export function buildGraphicAss(graphic, durMs, w, h, colors = {}, seed = 0) {
   const g = normalizeGraphic(graphic);
   if (!g) return null;
+  const variant = graphicVariant(seed);
   const accent = assColor(colors.accent || colors.primary);
-  const hs = Math.round(h * (w < h ? 0.064 : 0.09));
-  const ps = Math.round(hs * 0.62);
+  const accent2 = assColor(colors.secondary || colors.primary || colors.accent);
+  const portrait = w < h;
+  const hs = Math.round(h * (portrait ? 0.066 : 0.09));
+  const ps = Math.round(hs * 0.6);
   const cx = Math.round(w / 2);
-  const headLines = wrapLines(g.headline.toUpperCase(), w < h ? 13 : 22);
-  const lineH = Math.round(hs * 1.1);
-  const pointStep = Math.round(ps * 1.85);
-  // Centre the whole block (headline + points) a little above the middle,
-  // clear of the caption band, instead of pinning it to the top.
-  const blockH = headLines.length * lineH + (g.points.length ? Math.round(hs * 0.9) + g.points.length * pointStep : 0);
-  const blockTop = Math.max(Math.round(h * 0.16), Math.round((h - blockH) / 2 - h * 0.06));
-  const headBottom = blockTop + headLines.length * lineH;
   const end = msToAss(durMs);
-  const ev = [];
-  // Accent bar above the headline: grows out from the centre.
-  const barW = Math.round(w * 0.18), barH = Math.max(10, Math.round(h * 0.007));
-  ev.push(`Dialogue: 1,${msToAss(0)},${end},Gfx,,0,0,0,,{\\an5\\pos(${cx},${blockTop - Math.round(hs * 0.55)})\\1c${accent}\\bord0\\shad0\\fscx0\\t(0,380,\\fscx100)\\p1}m 0 0 l ${barW} 0 ${barW} ${barH} 0 ${barH}{\\p0}`);
-  // Headline: rises 70px into place, scales from 92%, fades in.
-  headLines.forEach((line, i) => {
-    const y = blockTop + i * lineH + Math.round(lineH / 2);
-    const t0 = 120 + i * 90;
-    ev.push(`Dialogue: 2,${msToAss(t0)},${end},Head,,0,0,0,,{\\an5\\move(${cx},${y + 70},${cx},${y},0,420)\\fscx92\\fscy92\\t(0,420,\\fscx100\\fscy100)\\fad(220,180)}${line}`);
-  });
-  // Points: each slides in from the left on its own beat, accent marker first.
-  g.points.forEach((p, i) => {
-    const y = headBottom + Math.round(hs * 0.9) + i * pointStep;
-    const t0 = 650 + i * 420;
-    if (t0 >= durMs - 300) return;
-    ev.push(`Dialogue: 2,${msToAss(t0)},${end},Point,,0,0,0,,{\\an5\\move(${cx - 60},${y},${cx},${y},0,320)\\fad(200,180)}{\\1c${accent}}●{\\1c&HFFFFFF&}  ${p}`);
-  });
+  const ev = glowEvents(durMs, w, h, accent, accent2);
+  const lineH = Math.round(hs * 1.08);
+  const pointStep = Math.round(ps * 1.9);
+  const maxChars = portrait ? 12 : 22;
+  const headLines = wrapLines(g.headline.toUpperCase(), maxChars);
+  const blockH = headLines.length * lineH + (g.points.length ? Math.round(hs * 0.9) + g.points.length * pointStep : 0);
+  const top = Math.max(Math.round(h * 0.16), Math.round((h - blockH) / 2 - h * 0.06));
+  const headBottom = top + headLines.length * lineH;
+  const pointsAt = (i) => headBottom + Math.round(hs * 0.9) + i * pointStep;
+  const pointStart = (i) => 900 + i * 380;
+
+  if (variant === "kinetic") {
+    // Word by word: each word pops from 135% with a quick fade; the last word
+    // (the payoff) takes the accent colour.
+    let k = 0;
+    const words = headLines.flatMap((line) => line.split(" "));
+    headLines.forEach((line, li) => {
+      const y = top + li * lineH + Math.round(lineH / 2);
+      const lineWords = line.split(" ");
+      const lineText = lineWords.map((word) => {
+        const t0 = 80 + k * 150;
+        const isLast = k === words.length - 1;
+        k++;
+        return `{\\alpha&HFF&\\fscx135\\fscy135\\t(${t0},${t0 + 1},\\alpha&H00&)\\t(${t0},${t0 + 220},\\fscx100\\fscy100)${isLast ? `\\1c${accent}` : ""}}${word}`;
+      }).join(" ");
+      ev.push(`Dialogue: 2,${msToAss(0)},${end},Head,,0,0,0,,{\\an5\\pos(${cx},${y})}${lineText}`);
+    });
+    g.points.forEach((p, i) => {
+      const t0 = 80 + words.length * 150 + 250 + i * 330;
+      if (t0 >= durMs - 300) return;
+      ev.push(`Dialogue: 2,${msToAss(t0)},${end},Point,,0,0,0,,{\\an5\\move(${cx},${pointsAt(i) + 30},${cx},${pointsAt(i)},0,260)\\fad(180,160)}{\\1c${accent}}●{\\1c&HFFFFFF&}  ${p}`);
+    });
+  } else if (variant === "highlight") {
+    // Left aligned. An accent marker wipes in behind each headline line (a
+    // boxed copy revealed by an animated clip), then the white type settles.
+    const x = Math.round(w * 0.08);
+    headLines.forEach((line, li) => {
+      const y = top + li * lineH;
+      const t0 = 100 + li * 180;
+      ev.push(`Dialogue: 1,${msToAss(t0)},${end},Mark,,0,0,0,,{\\an7\\pos(${x},${y})\\3c${accent}\\clip(0,0,${Math.max(0, x - Math.round(hs * 0.2))},${h})\\t(0,320,\\clip(0,0,${w},${h}))}${line}`);
+      ev.push(`Dialogue: 2,${msToAss(t0 + 120)},${end},HeadL,,0,0,0,,{\\an7\\move(${x + 24},${y},${x},${y},0,260)\\fad(160,160)}${line}`);
+    });
+    g.points.forEach((p, i) => {
+      const t0 = pointStart(i);
+      if (t0 >= durMs - 300) return;
+      const y = pointsAt(i) - Math.round(ps / 2);
+      ev.push(`Dialogue: 2,${msToAss(t0)},${end},PointL,,0,0,0,,{\\an7\\move(${x - 60},${y},${x},${y},0,300)\\fad(180,160)}{\\1c${accent}}—{\\1c&HFFFFFF&}  ${p}`);
+    });
+  } else {
+    // Chips: headline rises in; each point pops in as an accent-outlined pill.
+    headLines.forEach((line, li) => {
+      const y = top + li * lineH + Math.round(lineH / 2);
+      const t0 = 100 + li * 90;
+      ev.push(`Dialogue: 2,${msToAss(t0)},${end},Head,,0,0,0,,{\\an5\\move(${cx},${y + 60},${cx},${y},0,380)\\fscx94\\fscy94\\t(0,380,\\fscx100\\fscy100)\\fad(200,160)}${line}`);
+    });
+    g.points.forEach((p, i) => {
+      const t0 = pointStart(i);
+      if (t0 >= durMs - 300) return;
+      ev.push(`Dialogue: 2,${msToAss(t0)},${end},Chip,,0,0,0,,{\\an5\\pos(${cx},${pointsAt(i)})\\3c${accent}\\3a&H30&\\fscx70\\fscy70\\alpha&HFF&\\t(0,120,\\alpha&H00&)\\t(0,240,\\fscx104\\fscy104)\\t(240,340,\\fscx100\\fscy100)}${p}`);
+    });
+  }
   return assDoc(w, h, hs, ps, ev);
 }
 
@@ -106,6 +164,10 @@ export function graphicStyles(h, hs = Math.round(h * 0.064), ps = Math.round(hs 
     `Style: Gfx,Arial,10,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1`,
     `Style: Head,Arial,${hs},&H00FFFFFF,&H00000000,&H64000000,1,0,0,0,100,100,1,0,1,0,3,5,40,40,0,1`,
     `Style: Point,Arial,${ps},&H00FFFFFF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,0,2,5,40,40,0,1`,
+    `Style: HeadL,Arial,${hs},&H00FFFFFF,&H00000000,&H64000000,1,0,0,0,100,100,1,0,1,0,3,7,0,0,0,1`,
+    `Style: Mark,Arial,${hs},&HFFFFFFFF,&H00F6A33B,&H00F6A33B,1,0,0,0,100,100,1,0,3,${Math.round(hs * 0.14)},0,7,0,0,0,1`,
+    `Style: PointL,Arial,${ps},&H00FFFFFF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,0,2,7,0,0,0,1`,
+    `Style: Chip,Arial,${ps},&H00FFFFFF,&H00F6A33B,&H00F6A33B,1,0,0,0,100,100,1,0,3,${Math.max(8, Math.round(ps * 0.36))},0,5,0,0,0,1`,
     `Style: TagName,Arial,${tag},&H00FFFFFF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,3,2,1,0,0,0,1`,
     `Style: TagTitle,Arial,${Math.round(tag * 0.62)},&H00E6E6E6,&H00000000,&H64000000,0,0,0,0,100,100,1,0,1,2,1,7,0,0,0,1`,
   ];
