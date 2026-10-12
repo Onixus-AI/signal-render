@@ -227,7 +227,7 @@ function chunkUgcCaptions(text, startMs, endMs, wordsPerChunk = 3) {
 // Creator-video caption track: big, bold, upper-case word groups sitting just
 // below centre so they never cover the mouth. Talking scenes caption the
 // narration; the end-card keeps its sign-off text.
-function buildUgcAss(scenes, width, height, colors = {}) {
+function buildUgcAss(scenes, width, height, colors = {}, { captions = true } = {}) {
   const fs = Math.max(40, Math.round(height * 0.052));
   const marginV = Math.round(height * 0.3);
   const header =
@@ -250,8 +250,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   for (const s of scenes || []) {
     if (s.lower_third) lines.push(...lowerThirdEvents(s.lower_third, Number(s.start_ms) || 0, Number(s.end_ms) || 0, width, height, colors));
     const narration = String(s.voiceover_text || "").trim();
-    // A motion-graphic beat carries its own words on screen.
-    if (s.graphic) continue;
+    // A motion-graphic beat carries its own words on screen; with captions
+    // off the track carries only name tags.
+    if (s.graphic || !captions) continue;
     if (narration) {
       for (const c of chunkUgcCaptions(narration, Number(s.start_ms) || 0, Number(s.end_ms) || 0)) {
         lines.push(`Dialogue: 0,${msToAss(c.start_ms)},${msToAss(c.end_ms)},Ugc,,0,0,0,,${assEscape(c.text).toUpperCase()}`);
@@ -1109,9 +1110,13 @@ async function processVideoJob(p) {
     // UGC captions are timed from the narration, so a narration-only scene
     // still needs the track.
     const captionSource = (s) => (isUgc ? s.voiceover_text || s.on_screen_text : s.on_screen_text);
-    if (p.captions_enabled && sorted.some((s) => captionSource(s) && String(captionSource(s)).trim())) {
+    const wantCaptions = Boolean(p.captions_enabled && sorted.some((s) => captionSource(s) && String(captionSource(s)).trim()));
+    // A UGC name tag is its own on-screen element: it needs the track even
+    // when captions are off.
+    const wantTags = isUgc && sorted.some((s) => s.lower_third);
+    if (wantCaptions || wantTags) {
       assPath = join(dir, "captions.ass");
-      await writeFile(assPath, isUgc ? buildUgcAss(sorted, width, height, p.brand?.colors ?? {}) : buildAss(sorted, width, height));
+      await writeFile(assPath, isUgc ? buildUgcAss(sorted, width, height, p.brand?.colors ?? {}, { captions: wantCaptions }) : buildAss(sorted, width, height));
     }
     let musicPath = null;
     if (p.music_enabled !== false && !p.music_url) {
@@ -1209,7 +1214,7 @@ async function processVideoJob(p) {
       if (stretched.some((d, i) => d !== durs[i])) {
         durs.splice(0, durs.length, ...stretched);
         const retimed = retimeScenes(sorted, durs);
-        if (assPath) await writeFile(assPath, buildUgcAss(retimed, width, height, p.brand?.colors ?? {}));
+        if (assPath) await writeFile(assPath, buildUgcAss(retimed, width, height, p.brand?.colors ?? {}, { captions: wantCaptions }));
         console.log(`[job ${jobId}] ugc scenes stretched to narration: ${durs.map((d) => d.toFixed(2)).join(", ")}s`);
       }
       const talkingMissing = scenePaths.filter((s) => s.shot === "talking_head" && !s.videoFile);

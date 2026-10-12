@@ -54,6 +54,18 @@ test("the name tag slides in on the first beat and needs a name", () => {
 test("UGC assembly renders graphic beats and keeps their words off the caption track", async () => {
   const source = await readFile(new URL("./server.js", import.meta.url), "utf8");
   assert.match(source, /else if \(s\.graphic && !s\.videoFile\)/);
-  assert.match(source, /if \(s\.graphic\) continue;/);
+  assert.match(source, /if \(s\.graphic \|\| !captions\) continue;/);
   assert.match(source, /lowerThirdEvents\(s\.lower_third/);
+});
+
+test("long points wrap instead of running off a portrait frame", () => {
+  const ass = buildGraphicAss({ headline: "Fast", points: ["Captures every single inbound lead automatically"] }, 4000, 1080, 1920, {}, 0);
+  const point = ass.split("\n").find((l) => l.includes(",Point,"));
+  assert.match(point, /\\N/);
+});
+
+test("name tags are written even when captions are off", async () => {
+  const source = await readFile(new URL("./server.js", import.meta.url), "utf8");
+  assert.match(source, /const wantTags = isUgc && sorted\.some\(\(s\) => s\.lower_third\)/);
+  assert.match(source, /if \(s\.graphic \|\| !captions\) continue;/);
 });

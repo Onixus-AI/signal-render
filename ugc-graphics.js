@@ -83,10 +83,20 @@ export function buildGraphicAss(graphic, durMs, w, h, colors = {}, seed = 0) {
   const pointStep = Math.round(ps * 1.9);
   const maxChars = portrait ? 12 : 22;
   const headLines = wrapLines(g.headline.toUpperCase(), maxChars);
-  const blockH = headLines.length * lineH + (g.points.length ? Math.round(hs * 0.9) + g.points.length * pointStep : 0);
+  // Points wrap to the frame width (a six-word point overflows a portrait
+  // frame on one line); each point's block grows with its line count.
+  const ptChars = Math.max(10, Math.floor((w * 0.82) / (ps * 0.56)));
+  const ptLines = g.points.map((p) => wrapLines(p, ptChars));
+  const ptLineH = Math.round(ps * 1.15);
+  const ptH = ptLines.map((l) => l.length * ptLineH);
+  const ptGap = pointStep - ptLineH;
+  const pointsH = ptH.reduce((a, b) => a + b, 0) + Math.max(0, g.points.length - 1) * ptGap;
+  const blockH = headLines.length * lineH + (g.points.length ? Math.round(hs * 0.9) + pointsH : 0);
   const top = Math.max(Math.round(h * 0.16), Math.round((h - blockH) / 2 - h * 0.06));
   const headBottom = top + headLines.length * lineH;
-  const pointsAt = (i) => headBottom + Math.round(hs * 0.9) + i * pointStep;
+  const pointTop = (i) => headBottom + Math.round(hs * 0.9) + ptH.slice(0, i).reduce((a, b) => a + b, 0) + i * ptGap;
+  const pointsAt = (i) => pointTop(i) + Math.round(ptH[i] / 2);
+  const ptText = (i) => ptLines[i].join("\\N");
   const pointStart = (i) => 900 + i * 380;
 
   if (variant === "kinetic") {
@@ -108,7 +118,7 @@ export function buildGraphicAss(graphic, durMs, w, h, colors = {}, seed = 0) {
     g.points.forEach((p, i) => {
       const t0 = 80 + words.length * 150 + 250 + i * 330;
       if (t0 >= durMs - 300) return;
-      ev.push(`Dialogue: 2,${msToAss(t0)},${end},Point,,0,0,0,,{\\an5\\move(${cx},${pointsAt(i) + 30},${cx},${pointsAt(i)},0,260)\\fad(180,160)}{\\1c${accent}}●{\\1c&HFFFFFF&}  ${p}`);
+      ev.push(`Dialogue: 2,${msToAss(t0)},${end},Point,,0,0,0,,{\\an5\\move(${cx},${pointsAt(i) + 30},${cx},${pointsAt(i)},0,260)\\fad(180,160)}{\\1c${accent}}●{\\1c&HFFFFFF&}  ${ptText(i)}`);
     });
   } else if (variant === "highlight") {
     // Left aligned. An accent marker wipes in behind each headline line (a
@@ -123,8 +133,8 @@ export function buildGraphicAss(graphic, durMs, w, h, colors = {}, seed = 0) {
     g.points.forEach((p, i) => {
       const t0 = pointStart(i);
       if (t0 >= durMs - 300) return;
-      const y = pointsAt(i) - Math.round(ps / 2);
-      ev.push(`Dialogue: 2,${msToAss(t0)},${end},PointL,,0,0,0,,{\\an7\\move(${x - 60},${y},${x},${y},0,300)\\fad(180,160)}{\\1c${accent}}—{\\1c&HFFFFFF&}  ${p}`);
+      const y = pointTop(i);
+      ev.push(`Dialogue: 2,${msToAss(t0)},${end},PointL,,0,0,0,,{\\an7\\move(${x - 60},${y},${x},${y},0,300)\\fad(180,160)}{\\1c${accent}}—{\\1c&HFFFFFF&}  ${ptText(i)}`);
     });
   } else {
     // Chips: headline rises in; each point pops in as an accent-outlined pill.
@@ -136,7 +146,7 @@ export function buildGraphicAss(graphic, durMs, w, h, colors = {}, seed = 0) {
     g.points.forEach((p, i) => {
       const t0 = pointStart(i);
       if (t0 >= durMs - 300) return;
-      ev.push(`Dialogue: 2,${msToAss(t0)},${end},Chip,,0,0,0,,{\\an5\\pos(${cx},${pointsAt(i)})\\3c${accent}\\3a&H30&\\fscx70\\fscy70\\alpha&HFF&\\t(0,120,\\alpha&H00&)\\t(0,240,\\fscx104\\fscy104)\\t(240,340,\\fscx100\\fscy100)}${p}`);
+      ev.push(`Dialogue: 2,${msToAss(t0)},${end},Chip,,0,0,0,,{\\an5\\pos(${cx},${pointsAt(i)})\\3c${accent}\\3a&H30&\\fscx70\\fscy70\\alpha&HFF&\\t(0,120,\\alpha&H00&)\\t(0,240,\\fscx104\\fscy104)\\t(240,340,\\fscx100\\fscy100)}${ptText(i)}`);
     });
   }
   return assDoc(w, h, hs, ps, ev);
