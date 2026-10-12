@@ -24,5 +24,5 @@ test("scenes are re-timed back to back", () => {
 test("the UGC branch stretches scenes and rebuilds captions before cutting", async () => {
   const source = await readFile(new URL("./server.js", import.meta.url), "utf8");
   assert.match(source, /ugcStretchDurations\(durs, voSecs\)/);
-  assert.match(source, /buildUgcAss\(retimed, width, height\)/);
+  assert.match(source, /buildUgcAss\(retimed, width, height, /);
 });

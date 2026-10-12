@@ -32,6 +32,7 @@ import {
 } from "./motion-director.js";
 import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedHosts, pickFocusOffset, stripWindow } from "./site-capture.js";
 import { retimeScenes, ugcStretchDurations } from "./ugc-timing.js";
+import { buildGraphicAss, graphicStyles, lowerThirdEvents } from "./ugc-graphics.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(__dirname, "templates");
@@ -226,7 +227,7 @@ function chunkUgcCaptions(text, startMs, endMs, wordsPerChunk = 3) {
 // Creator-video caption track: big, bold, upper-case word groups sitting just
 // below centre so they never cover the mouth. Talking scenes caption the
 // narration; the end-card keeps its sign-off text.
-function buildUgcAss(scenes, width, height) {
+function buildUgcAss(scenes, width, height, colors = {}) {
   const fs = Math.max(40, Math.round(height * 0.052));
   const marginV = Math.round(height * 0.3);
   const header =
@@ -241,12 +242,16 @@ ScaledBorderAndShadow: yes
 Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Ugc,Arial,${fs},&H00FFFFFF,&H00000000,&H00000000,1,0,0,0,100,100,1,0,1,6,0,2,60,60,${marginV},1
 Style: Sign,Arial,${Math.round(fs * 0.8)},&H00FFFFFF,&H00000000,&H96000000,1,0,0,0,100,100,0,0,1,4,1,2,80,80,${Math.round(height * 0.1)},1
+${graphicStyles(height).filter((l) => l.startsWith("Style: Tag")).join("\n")}
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
   const lines = [];
   for (const s of scenes || []) {
+    if (s.lower_third) lines.push(...lowerThirdEvents(s.lower_third, Number(s.start_ms) || 0, Number(s.end_ms) || 0, width, height, colors));
     const narration = String(s.voiceover_text || "").trim();
+    // A motion-graphic beat carries its own words on screen.
+    if (s.graphic) continue;
     if (narration) {
       for (const c of chunkUgcCaptions(narration, Number(s.start_ms) || 0, Number(s.end_ms) || 0)) {
         lines.push(`Dialogue: 0,${msToAss(c.start_ms)},${msToAss(c.end_ms)},Ugc,,0,0,0,,${assEscape(c.text).toUpperCase()}`);
@@ -365,6 +370,27 @@ async function ugcBrollClip(img, audioSrc, outPath, durSec, w, h, idx, videoSrc 
     v = `[0:v]scale=${zi}:${hi}:force_original_aspect_ratio=increase,crop=${zi}:${hi},` +
       `zoompan=z='min(zoom+0.0028,1.26)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${w}x${h}:fps=30,setsar=1,format=yuv420p[v]`;
   }
+  const a = audioSrc
+    ? `[1:a]${ugcAudioChain(tempo, durSec)}[a]`
+    : `anullsrc=channel_layout=stereo:sample_rate=48000,atrim=0:${durSec.toFixed(3)},asetpts=N/SR/TB[a]`;
+  args.push("-filter_complex", `${v};${a}`, "-map", "[v]", "-map", "[a]", "-frames:v", String(frames), "-t", durSec.toFixed(3),
+    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20", "-c:a", "aac", "-b:a", "160k", outPath);
+  await runFfmpeg(args);
+}
+
+// Motion-graphic beat (TWIN founder ads): headline and points animate in over
+// the brand's dark backdrop, drawn by libass so the words are exact. Carries
+// the scene's narration like every other UGC clip.
+async function ugcGraphicClip(graphic, colors, audioSrc, outPath, durSec, w, h, idx, dir) {
+  const tempo = await ugcFitTempo(audioSrc, durSec, idx);
+  const ass = buildGraphicAss(graphic, Math.round(durSec * 1000), w, h, colors);
+  if (!ass) throw new Error(`scene ${idx} motion graphic has no headline`);
+  const assPath = join(dir, `graphic-${idx}.ass`);
+  await writeFile(assPath, ass);
+  const frames = Math.max(2, Math.round(durSec * 30));
+  const args = ["-y", "-f", "lavfi", "-i", `color=c=${SITE_BG}:s=${w}x${h}:r=30:d=${durSec.toFixed(3)}`];
+  if (audioSrc) args.push("-i", audioSrc);
+  const v = `[0:v]subtitles=${assPath},setsar=1,format=yuv420p[v]`;
   const a = audioSrc
     ? `[1:a]${ugcAudioChain(tempo, durSec)}[a]`
     : `anullsrc=channel_layout=stereo:sample_rate=48000,atrim=0:${durSec.toFixed(3)},asetpts=N/SR/TB[a]`;
@@ -1085,7 +1111,7 @@ async function processVideoJob(p) {
     const captionSource = (s) => (isUgc ? s.voiceover_text || s.on_screen_text : s.on_screen_text);
     if (p.captions_enabled && sorted.some((s) => captionSource(s) && String(captionSource(s)).trim())) {
       assPath = join(dir, "captions.ass");
-      await writeFile(assPath, isUgc ? buildUgcAss(sorted, width, height) : buildAss(sorted, width, height));
+      await writeFile(assPath, isUgc ? buildUgcAss(sorted, width, height, p.brand?.colors ?? {}) : buildAss(sorted, width, height));
     }
     let musicPath = null;
     if (p.music_enabled !== false && !p.music_url) {
@@ -1183,7 +1209,7 @@ async function processVideoJob(p) {
       if (stretched.some((d, i) => d !== durs[i])) {
         durs.splice(0, durs.length, ...stretched);
         const retimed = retimeScenes(sorted, durs);
-        if (assPath) await writeFile(assPath, buildUgcAss(retimed, width, height));
+        if (assPath) await writeFile(assPath, buildUgcAss(retimed, width, height, p.brand?.colors ?? {}));
         console.log(`[job ${jobId}] ugc scenes stretched to narration: ${durs.map((d) => d.toFixed(2)).join(", ")}s`);
       }
       const talkingMissing = scenePaths.filter((s) => s.shot === "talking_head" && !s.videoFile);
@@ -1196,6 +1222,8 @@ async function processVideoJob(p) {
         const cp = join(dir, `ugc-clip-${i}.mp4`);
         if (s.shot === "talking_head") {
           await ugcTalkingClip(s.videoFile, audioFiles[i], cp, durs[i], width, height, s.idx);
+        } else if (s.graphic && !s.videoFile) {
+          await ugcGraphicClip(s.graphic, p.brand?.colors ?? {}, audioFiles[i], cp, durs[i], width, height, s.idx, dir);
         } else if (s.site_capture && !s.videoFile) {
           await siteScrollClip(s.file, audioFiles[i], cp, durs[i], width, height, s.idx, dir);
         } else {
