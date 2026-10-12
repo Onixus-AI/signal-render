@@ -28,6 +28,8 @@ jobs:
     # is pinned in the Dockerfile.
     runs-on: ubuntu-latest
     continue-on-error: true
+    permissions:
+      contents: write
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -48,6 +50,13 @@ jobs:
           echo "EFFECTCRAFT_CLI=$(find /tmp/ec/x -type f -name effectcraft-cli | head -1)" >> "$GITHUB_ENV"
       - run: $EFFECTCRAFT_CLI --version
       - run: node scripts/effectcraft-smoke.mjs effectcraft-smoke
+      - name: Publish contact sheets to the ci/effectcraft-previews branch
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          mkdir -p /tmp/prev && cp effectcraft-smoke/sheet-*.jpg /tmp/prev/
+          cd /tmp/prev && git init -q -b ci/effectcraft-previews
+          git add . && git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -q -m "previews for ${{ github.event.pull_request.head.sha }}"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" HEAD:ci/effectcraft-previews
       - if: always()
         uses: actions/upload-artifact@v4
         with:
