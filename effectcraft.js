@@ -80,9 +80,9 @@ export function brandBeatLayout(graphic, w, h) {
   // Portrait has room to spare: a bigger mark and type fill the frame.
   const tall = h > w * 1.2;
   for (let k = 1; k >= 0.45; k -= 0.05) {
-    const markH = Math.round((tall ? 460 : 300) * u * k);
+    const markH = Math.round((tall ? 580 : 320) * u * k);
     const hs = Math.round((tall ? 104 : 92) * u * k);
-    const ws = Math.round(hs * 0.34);
+    const ws = Math.round(hs * 0.42);
     // The block above the headline: the mark, then the ONIXUS wordmark.
     const logoH = markH + Math.round(ws * 2.2);
     const lines = fitHeadline(g.headline, Math.floor((w * 0.86) / (hs * HEAD_CHAR)));
