@@ -12,3 +12,12 @@ test('four real exports preserve duration and exact AAC packets with no paid pro
   }
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
+test('a master already in the canvas shape fills it edge to edge, with no bars',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'adapt-fill-'));const master=join(dir,'m.mp4'),out=join(dir,'o.mp4');
+ try{
+  execFileSync('ffmpeg',['-v','error','-y','-f','lavfi','-i','color=c=red:size=540x960:rate=24','-t','0.5','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p',master]);
+  execFileSync('ffmpeg',['-v','error',...adaptationArgs(master,out,'9:16')],{timeout:60000});
+  const px=execFileSync('ffmpeg',['-v','error','-i',out,'-frames:v','1','-vf','crop=4:4:0:0,scale=1:1','-f','rawvideo','-pix_fmt','rgb24','-'],);
+  assert.ok(px[0]>200&&px[1]<60&&px[2]<60,`corner is the master's red, not a bar: ${[...px]}`);
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});
