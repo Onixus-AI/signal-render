@@ -21,3 +21,36 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm test
       - run: node --check server.js
+
+  effectcraft:
+    # Builds the production image (with its pinned EffectCraft) and renders a
+    # real Command beat inside it, so the motion graphics are checked in the
+    # environment that ships, and the stills can be graded on actual frames.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t signal-render .
+      - name: Render a Command beat inside the image
+        run: |
+          docker run --rm -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/effectcraft-smoke:/out" \
+            signal-render node scripts/effectcraft-smoke.mjs /out
+      - name: Publish contact sheets to the ci/effectcraft-previews branch
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          mkdir -p /tmp/prev && sudo cp effectcraft-smoke/sheet-*.jpg /tmp/prev/ && sudo chown -R "$USER" /tmp/prev
+          cd /tmp/prev && git init -q -b ci/effectcraft-previews
+          git add . && git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -q -m "previews for ${{ github.event.pull_request.head.sha }}"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" HEAD:ci/effectcraft-previews
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: effectcraft-smoke
+          path: |
+            effectcraft-smoke/*.png
+            effectcraft-smoke/*.mp4
+            effectcraft-smoke/*.jsx
+          if-no-files-found: warn

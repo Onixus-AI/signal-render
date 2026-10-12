@@ -1,0 +1,75 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { normalizeGraphic } from "./ugc-graphics.js";
+import { balancedLines, BRAND_MARK, LOGO_SIZE, brandBeatJsx, brandBeatLayout, brandBeatTiming, renderBrandBeat } from "./effectcraft.js";
+
+const G = { headline: "Your follow-ups run themselves now", points: ["Leads answered in minutes", "Invoices chased automatically", "Every job logged"] };
+
+test("the Onixus mark ships with the worker", () => {
+  assert.ok(existsSync(BRAND_MARK));
+});
+
+for (const [w, h] of [[1080, 1920], [1920, 1080], [1080, 1080]]) {
+  test(`layout fits the safe area at ${w}x${h}`, () => {
+    const L = brandBeatLayout(G, w, h);
+    assert.ok(L, "layout");
+    assert.ok(L.lines.length >= 1 && L.lines.length <= 3);
+    assert.equal(L.points.length, 3);
+    const top = L.logo.cy - (LOGO_SIZE[1] * L.logo.scale) / 2;
+    const bottom = L.points.at(-1).y + L.ps * 0.4;
+    assert.ok(top >= h * 0.1 - 1, `top ${top}`);
+    assert.ok(bottom <= h * 0.88 + 1, `bottom ${bottom}`);
+    for (let i = 1; i < L.lines.length; i++) assert.ok(L.lines[i].y > L.lines[i - 1].y);
+    assert.ok(L.points[0].y > L.lines.at(-1).y);
+    const longest = Math.max(...L.points.map((p) => p.text.length));
+    const mid = L.pointsX + (L.ps * 0.7 + longest * L.ps * 0.56) / 2;
+    assert.ok(Math.abs(mid - w / 2) < w * 0.02, `points centred (${mid} vs ${w / 2})`);
+  });
+}
+
+test("no headline means no beat", () => {
+  assert.equal(brandBeatLayout({ headline: "", points: ["x"] }, 1080, 1920), null);
+  assert.equal(brandBeatJsx({ points: ["x"] }, { w: 1080, h: 1920, durSec: 3 }), null);
+});
+
+test("timing lands every point before the beat ends", () => {
+  for (const d of [1.0, 1.4, 1.8, 2.5, 3.5, 6]) {
+    const T = brandBeatTiming(d, 3);
+    assert.equal(T.d, d, "the comp is the scene's own length");
+    assert.ok(T.pointsStart + 2 * T.stagger <= d - 0.4, `d=${d}: last point starts with time to read`);
+    assert.ok(T.stagger >= 0);
+  }
+});
+
+test("the generated script is valid JavaScript and carries the words as data", () => {
+  const evil = { headline: 'Quote " and \\ and </script> stay text', points: ["a\nb"] };
+  const jsx = brandBeatJsx(evil, { w: 1080, h: 1920, durSec: 3.5 });
+  assert.ok(jsx);
+  assert.doesNotThrow(() => new Function(jsx));
+  const D = JSON.parse(/var D = (.*);\n/.exec(jsx)[1]);
+  assert.equal(D.L.lines.map((l) => l.text).join(" "), normalizeGraphic(evil).headline);
+  assert.match(D.L.lines.map((l) => l.text).join(" "), /Quote " and .*<\/script>/);
+  assert.equal(D.w, 1080);
+  assert.ok(D.logoPath.endsWith("onixus-mark.png"));
+});
+
+test("without the CLI the beat reports failure instead of throwing", async () => {
+  const r = await renderBrandBeat(G, "/tmp/never.mp4", { w: 1080, h: 1920, durSec: 3, dir: "/tmp", bin: null });
+  assert.deepEqual(r, { ok: false, error: "effectcraft-cli not installed" });
+});
+
+test("headlines break into balanced lines, never a lone last word", () => {
+  assert.deepEqual(balancedLines("Your follow-ups run themselves now", 2), ["Your follow-ups", "run themselves now"]);
+  for (const [w, h] of [[1080, 1920], [1920, 1080], [1080, 1080]]) {
+    const L = brandBeatLayout(G, w, h);
+    if (L.lines.length > 1) assert.ok(L.lines.at(-1).text.split(" ").length > 1, `${w}x${h}: ${JSON.stringify(L.lines)}`);
+  }
+});
+
+test("points keep every word", () => {
+  for (const [w, h] of [[1080, 1920], [1920, 1080], [1080, 1080]]) {
+    const L = brandBeatLayout(G, w, h);
+    assert.deepEqual(L.points.map((p) => p.text), G.points);
+  }
+});
