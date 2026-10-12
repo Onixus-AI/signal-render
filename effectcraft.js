@@ -115,13 +115,16 @@ export function brandBeatLayout(graphic, w, h) {
 }
 
 // Beat timing that still lands every element when the beat is short.
+// The comp is exactly the scene's length (the caller trims to it), so every
+// reveal is scheduled to start with time left to read it.
 export function brandBeatTiming(durSec, nPoints) {
-  const d = Math.max(1.6, Number(durSec) || 3);
+  const d = Math.max(0.6, Number(durSec) || 3);
   const draw = Math.min(0.7, d * 0.22);
   const head = draw * 0.55;
   const pointsStart = Math.min(head + 0.7, d * 0.45);
-  const stagger = nPoints > 1 ? Math.min(0.32, (d - 0.9 - pointsStart) / (nPoints - 1)) : 0;
-  return { d, draw, head, glint: Math.min(draw + 0.2, d - 0.8), pointsStart, stagger: Math.max(0.12, stagger) };
+  const lastStart = Math.max(pointsStart, Math.min(d - 0.6, pointsStart + 0.32 * (nPoints - 1)));
+  const stagger = nPoints > 1 ? (lastStart - pointsStart) / (nPoints - 1) : 0;
+  return { d, draw, head, glint: Math.max(0.05, Math.min(draw + 0.2, d - 0.7)), pointsStart, stagger };
 }
 
 // The .jsx that builds comp "Main". Core layers run unguarded so a broken
@@ -211,7 +214,8 @@ guard("glint", function () {
   gl.property("ADBE Effect Parade").addProperty("ADBE Gaussian Blur 2").property(1).setValue(D.w * 0.03);
   var half = D.size[0] * D.L.logo.scale * 0.75;
   anim(tr(gl, "ADBE Position"), D.T.glint, D.T.glint + 0.6, [lp[0] - half, lp[1]], [lp[0] + half, lp[1]], [30, 30]);
-  anim(tr(gl, "ADBE Opacity"), D.T.glint, D.T.glint + 0.6, 70, 70, [0, 0]);
+  // Visible only while it crosses: in, hold, out.
+  keys(tr(gl, "ADBE Opacity"), [[D.T.glint, 0], [D.T.glint + 0.1, 70], [D.T.glint + 0.5, 70], [D.T.glint + 0.6, 0]]);
   gl.blendingMode = BlendingMode.ADD;
   var m = comp.layers.add(item);
   m.name = "Glint matte";

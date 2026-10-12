@@ -389,6 +389,7 @@ async function ugcGraphicClip(graphic, colors, audioSrc, outPath, durSec, w, h, 
   // graphic below stays as the fallback so a failed render never drops a beat.
   const ecOut = join(dir, `graphic-ec-${idx}.mp4`);
   const ec = await renderBrandBeat(graphic, ecOut, { w, h, durSec, dir, idx, colors });
+  let ecError = ec.error;
   if (ec.ok) {
     console.log(`[ugc] scene ${idx} graphic rendered by EffectCraft in ${ec.ms}ms${ec.warn?.length ? ` (warn: ${ec.warn.join("; ")})` : ""}`);
     const frames = Math.max(2, Math.round(durSec * 30));
@@ -400,10 +401,14 @@ async function ugcGraphicClip(graphic, colors, audioSrc, outPath, durSec, w, h, 
       : `anullsrc=channel_layout=stereo:sample_rate=48000,atrim=0:${durSec.toFixed(3)},asetpts=N/SR/TB[a]`;
     args.push("-filter_complex", `${v};${a}`, "-map", "[v]", "-map", "[a]", "-frames:v", String(frames), "-t", durSec.toFixed(3),
       "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18", "-c:a", "aac", "-b:a", "160k", outPath);
-    await runFfmpeg(args);
-    return;
+    try {
+      await runFfmpeg(args);
+      return;
+    } catch (e) {
+      ecError = `mux failed: ${e.message}`;
+    }
   }
-  if (effectcraftCli()) console.warn(`[ugc] scene ${idx} EffectCraft graphic failed, using libass: ${ec.error}`);
+  if (effectcraftCli()) console.warn(`[ugc] scene ${idx} EffectCraft graphic failed, using libass: ${ecError}`);
   const ass = buildGraphicAss(graphic, Math.round(durSec * 1000), w, h, colors, idx);
   if (!ass) throw new Error(`scene ${idx} motion graphic has no headline`);
   const assPath = join(dir, `graphic-${idx}.ass`);

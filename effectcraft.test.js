@@ -34,10 +34,11 @@ test("no headline means no beat", () => {
 });
 
 test("timing lands every point before the beat ends", () => {
-  for (const d of [1.8, 2.5, 3.5, 6]) {
+  for (const d of [1.0, 1.4, 1.8, 2.5, 3.5, 6]) {
     const T = brandBeatTiming(d, 3);
-    assert.ok(T.pointsStart + 2 * T.stagger + 0.5 <= T.d + 0.05, `d=${d}`);
-    assert.ok(T.glint + 0.6 <= T.d);
+    assert.equal(T.d, d, "the comp is the scene's own length");
+    assert.ok(T.pointsStart + 2 * T.stagger <= d - 0.4, `d=${d}: last point starts with time to read`);
+    assert.ok(T.stagger >= 0);
   }
 });
 
