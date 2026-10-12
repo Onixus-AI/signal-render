@@ -16,8 +16,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY server.js motion-director.js site-capture.js ugc-timing.js ad-adaptation.js ugc-graphics.js ./
+COPY server.js motion-director.js site-capture.js ugc-timing.js ad-adaptation.js ugc-graphics.js effectcraft.js ./
 COPY templates ./templates
+COPY mograph ./mograph
 
 ENV NODE_ENV=production
 ENV PORT=8080
