@@ -1,10 +1,10 @@
-// CI smoke test: render one Command beat with the installed EffectCraft CLI,
+// CI smoke test: render one Onixus beat with the installed EffectCraft CLI,
 // then pull stills at key moments so a person can grade the motion.
 // Usage: EFFECTCRAFT_CLI=/path/effectcraft-cli node scripts/effectcraft-smoke.mjs OUT_DIR
 import { mkdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
-import { effectcraftCli, renderCommandBeat } from "../effectcraft.js";
+import { effectcraftCli, renderBrandBeat } from "../effectcraft.js";
 
 const out = resolve(process.argv[2] || "effectcraft-smoke");
 await mkdir(out, { recursive: true });
@@ -12,7 +12,7 @@ const graphic = { headline: "Your follow-ups run themselves now", points: ["Lead
 let failed = false;
 for (const [w, h, d] of [[1080, 1920, 3.6], [1920, 1080, 3.6]]) {
   const mp4 = join(out, `beat-${w}x${h}.mp4`);
-  const r = await renderCommandBeat(graphic, mp4, { w, h, durSec: d, dir: out, idx: `${w}x${h}`, bin: effectcraftCli() });
+  const r = await renderBrandBeat(graphic, mp4, { w, h, durSec: d, dir: out, idx: `${w}x${h}`, bin: effectcraftCli() });
   console.log(`${w}x${h}`, JSON.stringify(r));
   if (!r.ok) { failed = true; continue; }
   for (const t of [0.15, 0.45, 0.9, 1.3, 2.2, 3.4]) {

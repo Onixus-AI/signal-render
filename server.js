@@ -33,7 +33,7 @@ import {
 import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedHosts, pickFocusOffset, stripWindow } from "./site-capture.js";
 import { retimeScenes, ugcStretchDurations } from "./ugc-timing.js";
 import { buildGraphicAss, graphicStyles, lowerThirdEvents } from "./ugc-graphics.js";
-import { effectcraftCli, renderCommandBeat } from "./effectcraft.js";
+import { effectcraftCli, renderBrandBeat } from "./effectcraft.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(__dirname, "templates");
@@ -385,10 +385,10 @@ async function ugcBrollClip(img, audioSrc, outPath, durSec, w, h, idx, videoSrc 
 // the scene's narration like every other UGC clip.
 async function ugcGraphicClip(graphic, colors, audioSrc, outPath, durSec, w, h, idx, dir) {
   const tempo = await ugcFitTempo(audioSrc, durSec, idx);
-  // EffectCraft first (Command mark draw-on, designed type motion); the libass
+  // EffectCraft first (Onixus mark reveal, designed type motion); the libass
   // graphic below stays as the fallback so a failed render never drops a beat.
   const ecOut = join(dir, `graphic-ec-${idx}.mp4`);
-  const ec = await renderCommandBeat(graphic, ecOut, { w, h, durSec, dir, idx, colors });
+  const ec = await renderBrandBeat(graphic, ecOut, { w, h, durSec, dir, idx, colors });
   if (ec.ok) {
     console.log(`[ugc] scene ${idx} graphic rendered by EffectCraft in ${ec.ms}ms${ec.warn?.length ? ` (warn: ${ec.warn.join("; ")})` : ""}`);
     const frames = Math.max(2, Math.round(durSec * 30));

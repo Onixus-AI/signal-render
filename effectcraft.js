@@ -6,12 +6,12 @@
 // falls back to the libass graphic, so a bad EffectCraft build never costs a
 // day's ad.
 //
-// The design: the Command mark (the automation product's logo) draws itself on
-// stroke by stroke over the real artwork, a light glint crosses it, then the
-// headline rises in line by line and the points slide in behind chevron
-// bullets taken from the mark. The gradient lives only in the mark; type is
-// solid white on near-black (open-design-intelligence: no gradient text, no
-// neon/glass defaults).
+// The design: the Onixus mark pops in with a small overshoot (every ad builds
+// recognition of the one brand), a light glint crosses it and the ONIXUS
+// wordmark settles under it; then the headline rises in line by line and the
+// points slide in behind chevron bullets in the mark's colours. Colour lives
+// only in the mark; type is solid white on near-black (open-design-intelligence:
+// no gradient text, no neon/glass defaults).
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -21,16 +21,11 @@ import { fileURLToPath } from "node:url";
 import { normalizeGraphic } from "./ugc-graphics.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-export const COMMAND_LOGO = join(HERE, "mograph", "command-logo.png");
-// The cropped logo is 718x518; centrelines of its three strokes in that space.
-export const LOGO_SIZE = [718, 518];
-const LOGO_STROKES = [
-  { pts: [[280, -20], [47, 216], [247, 426]], width: 80, from: "middle", delay: 0 },
-  { pts: [[438, -20], [670, 216], [470, 426]], width: 80, from: "middle", delay: 0 },
-  { pts: [[322, 112], [322, 357], [512, 556]], width: 96, from: "start", delay: 0.2 },
-];
-// Brand gradient stops sampled from the mark (top → bottom).
-export const MARK_COLORS = ["#00BFF2", "#0A84FF", "#FD0186"];
+export const BRAND_MARK = join(HERE, "mograph", "onixus-mark.png");
+// The cropped Onixus mark (from radiant-connect-dash public/onixus_logo_tiktok_1024.png).
+export const LOGO_SIZE = [624, 720];
+// Colours sampled from the mark: cyan, blue, purple.
+export const MARK_COLORS = ["#25A5DE", "#4F8BEA", "#7E3BD5"];
 
 export function effectcraftCli(env = process.env) {
   const p = env.EFFECTCRAFT_CLI || "/opt/effectcraft/bin/effectcraft-cli";
@@ -77,7 +72,7 @@ const HEAD_CHAR = 0.52, POINT_CHAR = 0.56;
 // Lay the beat out in pixels: logo block, headline lines, point rows, all
 // stacked and centred in the frame's safe area. Type shrinks until every
 // word fits; nothing is ever cut.
-export function commandBeatLayout(graphic, w, h) {
+export function brandBeatLayout(graphic, w, h) {
   const g = normalizeGraphic(graphic);
   if (!g) return null;
   const u = Math.min(w, h) / 1080;
@@ -85,9 +80,11 @@ export function commandBeatLayout(graphic, w, h) {
   // Portrait has room to spare: a bigger mark and type fill the frame.
   const tall = h > w * 1.2;
   for (let k = 1; k >= 0.45; k -= 0.05) {
-    const logoW = Math.round(Math.min(w * (tall ? 0.6 : 0.5), (tall ? 640 : 520) * u) * k);
-    const logoH = Math.round(logoW * LOGO_SIZE[1] / LOGO_SIZE[0]);
+    const markH = Math.round((tall ? 460 : 300) * u * k);
     const hs = Math.round((tall ? 104 : 92) * u * k);
+    const ws = Math.round(hs * 0.34);
+    // The block above the headline: the mark, then the ONIXUS wordmark.
+    const logoH = markH + Math.round(ws * 2.2);
     const lines = fitHeadline(g.headline, Math.floor((w * 0.86) / (hs * HEAD_CHAR)));
     const ps = Math.round(hs * 0.56);
     const pMax = Math.floor((w * 0.84 - ps * 0.7) / (ps * POINT_CHAR));
@@ -107,7 +104,8 @@ export function commandBeatLayout(graphic, w, h) {
     const blockW = ps * 0.7 + longest * ps * POINT_CHAR;
     const pointsX = Math.round(Math.max(w * 0.06, (w - blockW) / 2));
     return {
-      w, h, u, logo: { cx: w / 2, cy: top + logoH / 2, scale: logoW / LOGO_SIZE[0] },
+      w, h, u, logo: { cx: w / 2, cy: top + markH / 2, scale: markH / LOGO_SIZE[1] },
+      word: { size: ws, y: Math.round(top + markH + ws * 1.6) },
       hs, lineH, lines: lines.map((t, i) => ({ text: t, y: Math.round(headTop + i * lineH + hs * 0.82) })),
       ps, rowH, pointsX, points: points.map((t, i) => ({ text: t, y: Math.round(pointsTop + i * rowH + ps * 0.8) })),
       underlineY: Math.round(headTop + lines.length * lineH + gap * 0.25),
@@ -117,7 +115,7 @@ export function commandBeatLayout(graphic, w, h) {
 }
 
 // Beat timing that still lands every element when the beat is short.
-export function commandBeatTiming(durSec, nPoints) {
+export function brandBeatTiming(durSec, nPoints) {
   const d = Math.max(1.6, Number(durSec) || 3);
   const draw = Math.min(0.7, d * 0.22);
   const head = draw * 0.55;
@@ -129,13 +127,13 @@ export function commandBeatTiming(durSec, nPoints) {
 // The .jsx that builds comp "Main". Core layers run unguarded so a broken
 // build fails loudly (and the worker falls back); embellishments run inside
 // try/catch so a missing effect costs polish, not the beat.
-export function commandBeatJsx(graphic, { w, h, durSec, fps = 30, logoPath = COMMAND_LOGO, colors = {} } = {}) {
-  const L = commandBeatLayout(graphic, w, h);
+export function brandBeatJsx(graphic, { w, h, durSec, fps = 30, logoPath = BRAND_MARK, colors = {} } = {}) {
+  const L = brandBeatLayout(graphic, w, h);
   if (!L) return null;
-  const T = commandBeatTiming(durSec, L.points.length);
+  const T = brandBeatTiming(durSec, L.points.length);
   const bg = rgb(colors.background && /^#?0/.test(colors.background) ? colors.background : "#05060B");
   const data = {
-    w, h, fps, d: T.d, T, L, bg, logoPath, strokes: LOGO_STROKES, size: LOGO_SIZE,
+    w, h, fps, d: T.d, T, L, bg, logoPath, size: LOGO_SIZE,
     mark: MARK_COLORS.map(rgb), white: [1, 1, 1], soft: rgb("#C9CED8"),
   };
   return `// generated by signal-render effectcraft.js
@@ -174,7 +172,7 @@ var comp = app.project.items.addComp("Main", D.w, D.h, 1, D.d, D.fps);
 comp.bgColor = D.bg;
 var bg = comp.layers.addSolid(D.bg, "Background", D.w, D.h, 1, D.d);
 
-// Two soft brand glows, cyan high and magenta low, breathing in.
+// Two soft brand glows, cyan high and purple low, breathing in.
 guard("glows", function () {
   var spots = [[0.28, 0.24, 0], [0.74, 0.78, 2]];
   for (var i = 0; i < spots.length; i++) {
@@ -191,61 +189,49 @@ guard("glows", function () {
   }
 });
 
-// The Command mark: real artwork revealed by animated strokes along its centrelines.
-var item = app.project.importFile(new ImportOptions(new File(D.logoPath)));
-var logo = comp.layers.add(item);
-logo.name = "Command";
-var draw = comp.layers.addShape();
-draw.name = "Command draw-on";
-for (var s = 0; s < D.strokes.length; s++) {
-  var st = D.strokes[s];
-  var grp = draw.property("ADBE Root Vectors Group").addProperty("ADBE Vector Group");
-  var path = grp.property("ADBE Vectors Group").addProperty("ADBE Vector Shape - Group");
-  var shp = new Shape();
-  var verts = [];
-  for (var v = 0; v < st.pts.length; v++) verts.push([st.pts[v][0] - D.size[0] / 2, st.pts[v][1] - D.size[1] / 2]);
-  shp.vertices = verts; shp.closed = false;
-  path.property("ADBE Vector Shape").setValue(shp);
-  var stroke = grp.property("ADBE Vectors Group").addProperty("ADBE Vector Graphic - Stroke");
-  stroke.property("ADBE Vector Stroke Color").setValue([1, 1, 1]);
-  stroke.property("ADBE Vector Stroke Width").setValue(st.width);
-  var trim = grp.property("ADBE Vectors Group").addProperty("ADBE Vector Filter - Trim");
-  var t0 = 0.05 + st.delay * D.T.draw, t1 = t0 + D.T.draw;
-  if (st.from === "middle") {
-    anim(trim.property("ADBE Vector Trim Start"), t0, t1, 50, 0, [0, 90]);
-    anim(trim.property("ADBE Vector Trim End"), t0, t1, 50, 100, [0, 90]);
-  } else {
-    trim.property("ADBE Vector Trim Start").setValue(0);
-    anim(trim.property("ADBE Vector Trim End"), t0, t1, 0, 100, [0, 90]);
-  }
+// The Onixus mark: pops in with a small overshoot, then a slow push.
+function keys(p, list) {
+  for (var i = 0; i < list.length; i++) p.setValueAtTime(list[i][0], list[i][1]);
+  for (var k = 1; k <= list.length; k++) ease(p, k, [k === 1 ? 0 : 70, 70]);
 }
+var item = app.project.importFile(new ImportOptions(new File(D.logoPath)));
 var lp = [D.L.logo.cx, D.L.logo.cy], ls = D.L.logo.scale * 100;
+var t0 = 0.05, t1 = t0 + D.T.draw * 0.7, t2 = t0 + D.T.draw;
+var scaleKeys = [[t0, [ls * 0.62, ls * 0.62]], [t1, [ls * 1.04, ls * 1.04]], [t2, [ls, ls]], [D.d, [ls * 1.03, ls * 1.03]]];
+var logo = comp.layers.add(item);
+logo.name = "Onixus";
 tr(logo, "ADBE Position").setValue(lp);
-tr(draw, "ADBE Position").setValue(lp);
-anim(tr(logo, "ADBE Scale"), 0, D.d, [ls * 0.94, ls * 0.94], [ls, ls], [20, 20]);
-anim(tr(draw, "ADBE Scale"), 0, D.d, [ls * 0.94, ls * 0.94], [ls, ls], [20, 20]);
-draw.moveBefore(logo);
-logo.setTrackMatte(draw, TrackMatteType.ALPHA);
-guard("hide matte", function () { draw.enabled = false; });
+keys(tr(logo, "ADBE Scale"), scaleKeys);
+anim(tr(logo, "ADBE Opacity"), t0, t0 + D.T.draw * 0.45, 0, 100, [0, 60]);
 
-// A light glint across the finished mark.
+// A light glint across the mark once it lands.
 guard("glint", function () {
   var gl = comp.layers.addSolid([1, 1, 1], "Glint", Math.round(D.w * 0.09), Math.round(D.h * 0.5), 1, D.d);
   tr(gl, "ADBE Rotate Z").setValue(24);
   gl.property("ADBE Effect Parade").addProperty("ADBE Gaussian Blur 2").property(1).setValue(D.w * 0.03);
-  var half = LOGO_HALF();
+  var half = D.size[0] * D.L.logo.scale * 0.75;
   anim(tr(gl, "ADBE Position"), D.T.glint, D.T.glint + 0.6, [lp[0] - half, lp[1]], [lp[0] + half, lp[1]], [30, 30]);
-  anim(tr(gl, "ADBE Opacity"), D.T.glint, D.T.glint + 0.6, 85, 85, [0, 0]);
+  anim(tr(gl, "ADBE Opacity"), D.T.glint, D.T.glint + 0.6, 70, 70, [0, 0]);
   gl.blendingMode = BlendingMode.ADD;
   var m = comp.layers.add(item);
   m.name = "Glint matte";
   tr(m, "ADBE Position").setValue(lp);
-  anim(tr(m, "ADBE Scale"), 0, D.d, [ls * 0.94, ls * 0.94], [ls, ls], [20, 20]);
+  keys(tr(m, "ADBE Scale"), scaleKeys);
   m.moveBefore(gl);
   gl.setTrackMatte(m, TrackMatteType.ALPHA);
   guard("hide glint matte", function () { m.enabled = false; });
 });
-function LOGO_HALF() { return D.size[0] * D.L.logo.scale * 0.7; }
+
+// The ONIXUS wordmark settles under the mark, widely tracked.
+guard("wordmark", function () {
+  var wm = text(comp, "ONIXUS", D.L.word.size, "Inter-SemiBold", D.soft, D.w / 2, D.L.word.y);
+  wm.name = "Wordmark";
+  var p = wm.property("ADBE Text Properties").property("ADBE Text Document");
+  var doc = p.value; doc.tracking = 600; p.setValue(doc);
+  var a = t0 + D.T.draw * 0.6;
+  anim(tr(wm, "ADBE Position"), a, a + 0.45, [D.w / 2, D.L.word.y + D.L.word.size * 0.8], [D.w / 2, D.L.word.y], [0, 90]);
+  anim(tr(wm, "ADBE Opacity"), a, a + 0.35, 0, 100, [0, 60]);
+});
 
 // Headline: solid white, each line rising in on its own beat.
 for (var i = 0; i < D.L.lines.length; i++) {
@@ -271,7 +257,7 @@ guard("rule", function () {
   anim(tr(r, "ADBE Scale"), a, a + 0.45, [0, 100], [100, 100], [0, 90]);
 });
 
-// Points: a chevron bullet from the mark, then the words sliding in.
+// Points: a chevron bullet in the mark's colours, then the words sliding in.
 for (var j = 0; j < D.L.points.length; j++) {
   var pt = D.L.points[j];
   var t = D.T.pointsStart + j * D.T.stagger;
@@ -316,11 +302,11 @@ function run(bin, args, timeoutMs) {
 
 // Build and render one beat to a silent MP4 at w×h. Resolves to
 // {ok:true, ms, warn} or {ok:false, error}; never throws.
-export async function renderCommandBeat(graphic, outPath, { w, h, durSec, dir, idx = 0, colors, bin = effectcraftCli(), timeoutMs = 180000 } = {}) {
+export async function renderBrandBeat(graphic, outPath, { w, h, durSec, dir, idx = 0, colors, bin = effectcraftCli(), timeoutMs = 180000 } = {}) {
   if (!bin) return { ok: false, error: "effectcraft-cli not installed" };
   const t0 = Date.now();
   try {
-    const jsx = commandBeatJsx(graphic, { w, h, durSec, colors });
+    const jsx = brandBeatJsx(graphic, { w, h, durSec, colors });
     if (!jsx) return { ok: false, error: "graphic has no headline or does not fit" };
     const jsxPath = join(dir, `beat-${idx}.jsx`), proj = join(dir, `beat-${idx}.ecproj`);
     await writeFile(jsxPath, jsx);
