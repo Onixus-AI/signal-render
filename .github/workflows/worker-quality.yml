@@ -21,3 +21,39 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm test
       - run: node --check server.js
+
+  effectcraft:
+    # Renders a real Command beat with EffectCraft and keeps the stills, so the
+    # motion design is graded on actual frames. Non-blocking until the release
+    # is pinned in the Dockerfile.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install EffectCraft
+        run: |
+          gh release view --repo storytold/effectcraft --json tagName,publishedAt -q '"tag=\(.tagName) published=\(.publishedAt)"'
+          gh release download --repo storytold/effectcraft --pattern '*-linux-x86_64.tar.gz' --dir /tmp/ec
+          sha256sum /tmp/ec/*.tar.gz
+          mkdir -p /tmp/ec/x && tar -xzf /tmp/ec/*.tar.gz -C /tmp/ec/x
+          find /tmp/ec/x -maxdepth 4 -type f | head -20
+          echo "EFFECTCRAFT_CLI=$(find /tmp/ec/x -type f -name effectcraft-cli | head -1)" >> "$GITHUB_ENV"
+      - run: $EFFECTCRAFT_CLI --version
+      - run: node scripts/effectcraft-smoke.mjs effectcraft-smoke
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: effectcraft-smoke
+          path: |
+            effectcraft-smoke/*.png
+            effectcraft-smoke/*.mp4
+            effectcraft-smoke/*.jsx
+          if-no-files-found: warn
