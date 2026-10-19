@@ -18,7 +18,7 @@ test("brand and audio defects fail closed", () => {
 
 test("short narration is fitted or rejected", () => {
   assert.match(source, /fitVoiceoverToTimeline/);
-  assert.match(source, /coverage < 0\.55/);
+  assert.match(source, /voiceoverFitPlan\(originalSec, totalSec\)/);
   assert.match(source, /atempo=/);
 });
 
@@ -101,10 +101,11 @@ test("UGC assembles per-scene narration instead of one voiceover track", () => {
   // UGC narration rides on scenes[].audio_url; requiring a global track failed
   // every creator ad before it rendered a frame.
   assert.match(source, /if \(p\.voiceover_enabled && !p\.voiceover_url && !isUgc\)/);
-  assert.match(source, /if \(isUgc\) \{\n      await reportStatus\(jobId, projectId, \{ progress: 40, current_step: "ugc_assemble" \}\)/);
+  assert.match(source, /if \(isUgc\) \{\n      await report\(\{ progress: 40, current_step: "ugc_assemble" \}\)/);
   assert.match(source, /talking-head clip missing for scene/);
   assert.match(source, /await ugcAssemble\(/);
   assert.match(source, /if \(isPremiumMotion && !isUgc\)/);
   // The UGC caption track is written for narration-only scenes too.
   assert.match(source, /isUgc \? s\.voiceover_text \|\| s\.on_screen_text : s\.on_screen_text/);
 });
+

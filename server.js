@@ -1,3 +1,4 @@
+import { deliverRenderStatus } from "./status-delivery.js";
 import {AD_CANVASES,adaptationArgs,adaptationUrl} from './ad-adaptation.js';
 // signal-render — stateless video worker.
 // Uploads via signed-URL PUTs; reports status back through the authenticated
@@ -31,7 +32,7 @@ import {
   transitionDuration,
 } from "./motion-director.js";
 import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedHosts, pickFocusOffset, stripWindow } from "./site-capture.js";
-import { retimeScenes, ugcStretchDurations } from "./ugc-timing.js";
+import { retimeScenes, ugcStretchDurations, voiceoverFitPlan } from "./ugc-timing.js";
 import { buildGraphicAss, graphicStyles, lowerThirdEvents } from "./ugc-graphics.js";
 import { effectcraftCli, renderBrandBeat } from "./effectcraft.js";
 
@@ -642,15 +643,8 @@ async function probeHasAudio(file) {
 // Drastically short scripts fail rather than publishing a long silent tail.
 async function fitVoiceoverToTimeline(dir, voicePath, totalSec) {
   const originalSec = await probeDuration(voicePath);
-  if (!Number.isFinite(originalSec) || originalSec <= 0) throw new Error("voiceover duration is invalid");
-  const coverage = originalSec / totalSec;
-  if (coverage < 0.55) {
-    throw new Error(`narration covers only ${Math.round(coverage * 100)}% of the video; regenerate the script before publishing`);
-  }
-  if (coverage >= 0.9) return { path: voicePath, originalSec, adjustedSec: originalSec, adjusted: false, coverage };
-  const desiredSec = totalSec * 0.96;
-  const tempo = originalSec / desiredSec;
-  if (tempo < 0.5 || tempo > 2) throw new Error(`narration pacing correction ${tempo.toFixed(3)} is outside the safe range`);
+  const { coverage, adjust, tempo } = voiceoverFitPlan(originalSec, totalSec);
+  if (!adjust) return { path: voicePath, originalSec, adjustedSec: originalSec, adjusted: false, coverage };
   const fittedPath = join(dir, "voice-fitted.mp3");
   await runFfmpeg([
     "-y", "-i", voicePath,
@@ -715,27 +709,17 @@ function countByStatus(status) {
   return n;
 }
 
-async function reportStatus(jobId, projectId, patch) {
+async function reportStatus(jobId, projectId, patch, attemptToken = null) {
   if (!STATUS_ENDPOINT) {
-    console.warn(`[job ${jobId}] SUPABASE_URL not set; skipping status report`);
-    return;
+    console.error(`[job ${jobId}] status endpoint not configured`);
+    return false;
   }
-  try {
-    const r = await fetchWithTimeout(STATUS_ENDPOINT, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${RENDER_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ job_id: jobId, project_id: projectId, patch }),
-    }, TIMEOUTS.status_ms);
-    if (!r.ok) {
-      const text = await r.text().catch(() => "");
-      console.error(`[job ${jobId}] status ${r.status}: ${text.slice(0, 200)}`);
-    }
-  } catch (err) {
-    console.error(`[job ${jobId}] status callback failed:`, err);
-  }
+  const result = await deliverRenderStatus(STATUS_ENDPOINT, RENDER_TOKEN,
+    { job_id: jobId, project_id: projectId, attempt_token: attemptToken, patch }, {
+      fetcher: (url, options) => fetchWithTimeout(url, options, TIMEOUTS.status_ms),
+    });
+  if (!result.ok) console.error(`[job ${jobId}] callback undelivered after ${result.attempts} attempts: ${result.error}`);
+  return result.ok;
 }
 
 function validateVideoPayload(p) {
@@ -763,12 +747,14 @@ app.get("/health", async (_req, res) => {
     templates,
     video_render: Boolean(ffmpegOk && RENDER_TOKEN),
     ad_adaptation: 1,
+    callback_protocol: 2,
     motion_graphics: effectcraftCli() ? "effectcraft" : "libass",
     html_render: chromiumOk,
     html_render_auth_required: Boolean(HTML_RENDER_TOKEN),
     html_render_max_concurrency: MAX_HTML_CONCURRENCY,
     html_render_active: pageSlots.active,
     status_endpoint_configured: Boolean(STATUS_ENDPOINT),
+    undelivered_video_callbacks: countByStatus("callback_pending"),
     active_video_jobs: countByStatus("rendering"),
     queued_video_jobs: countByStatus("queued"),
   });
@@ -1051,10 +1037,13 @@ app.post("/render-video", auth, (req, res) => {
 
   const existing = jobs.get(payload.job_id);
   if (existing && (existing.status === "queued" || existing.status === "rendering")) {
+    if ((existing.attempt_token ?? null) !== (payload.attempt_token ?? null)) {
+      return res.status(409).json({ error: "A different attempt is still running; reconcile it before retrying" });
+    }
     return res.status(202).json({ ok: true, accepted: true, job_id: payload.job_id, deduped: true });
   }
 
-  jobs.set(payload.job_id, { status: "queued" });
+  jobs.set(payload.job_id, { status: "queued", attempt_token: payload.attempt_token ?? null });
   res.status(202).json({ ok: true, accepted: true, job_id: payload.job_id });
 
   renderChain = renderChain
@@ -1067,13 +1056,14 @@ app.post("/render-video", auth, (req, res) => {
 
 async function processVideoJob(p) {
   const { job_id: jobId, project_id: projectId } = p;
+  const report = (patch) => reportStatus(jobId, projectId, patch, p.attempt_token ?? null);
   const isPremiumMotion = p.premium_motion === true;
-  jobs.set(jobId, { status: "rendering" });
+  jobs.set(jobId, { status: "rendering", attempt_token: p.attempt_token ?? null });
   const started = Date.now();
   const dir = await mkdtemp(join(tmpdir(), `sig-${jobId}-`));
 
   try {
-    await reportStatus(jobId, projectId, { status: "rendering", progress: 5, current_step: "downloading_scenes" });
+    await report({ status: "rendering", progress: 5, current_step: "downloading_scenes" });
 
     // 1. Download scenes (sorted by idx). Every scene has a still (used for the
     // thumbnail and as Ken-Burns source/fallback); stock scenes also carry a
@@ -1101,7 +1091,7 @@ async function processVideoJob(p) {
       scenePaths.push({ ...s, file, videoFile });
     }
 
-    await reportStatus(jobId, projectId, { progress: 35, current_step: "encoding" });
+    await report({ progress: 35, current_step: "encoding" });
 
     // Output dimensions from project format ("9:16" | "1:1" | "16:9",
     // tolerating "9x16"/"16x9"). cover-fit via increase + crop.
@@ -1221,7 +1211,7 @@ async function processVideoJob(p) {
     // reason instead. B-roll without a clip (real site captures, the logo
     // end-card) gets a slow push-in on the still.
     if (isUgc) {
-      await reportStatus(jobId, projectId, { progress: 40, current_step: "ugc_assemble" });
+      await report({ progress: 40, current_step: "ugc_assemble" });
       const audioFiles = [];
       for (const s of scenePaths) {
         let af = null;
@@ -1271,7 +1261,7 @@ async function processVideoJob(p) {
     // branch has no slideshow fallback: a missing/broken clip must fail the
     // Premium job rather than masquerade as Standard.
     if (isPremiumMotion && !isUgc) {
-      await reportStatus(jobId, projectId, { progress: 40, current_step: "premium_motion_assemble" });
+      await report({ progress: 40, current_step: "premium_motion_assemble" });
       const missing = scenePaths.filter((s) => !s.videoFile && !s.endcard);
       if (missing.length) throw new Error(`Premium motion clips missing for scene ${missing.map((s) => s.idx).join(", ")}`);
       const T = Math.min(0.6, Math.min(...durs) * 0.4);
@@ -1348,7 +1338,7 @@ async function processVideoJob(p) {
       thumbPath,
     ]);
 
-    await reportStatus(jobId, projectId, { progress: 80, current_step: "uploading" });
+    await report({ progress: 80, current_step: "uploading" });
 
     // 5. Upload via signed PUTs
     const [videoBytes, thumbBytes] = await Promise.all([
@@ -1374,7 +1364,7 @@ async function processVideoJob(p) {
       ffmpegVersion(),
     ]);
 
-    await reportStatus(jobId, projectId, {
+    const completionDelivered = await report({
       status: "rendered",
       render_ms: Date.now() - started,
       render_source: p.render_source || "railway",
@@ -1418,16 +1408,16 @@ async function processVideoJob(p) {
       },
     });
 
-    jobs.set(jobId, { status: "done", finished_at: Date.now() });
+    jobs.set(jobId, { status: completionDelivered ? "done" : "callback_pending", finished_at: Date.now() });
   } catch (err) {
     const message = String(err?.message || err).slice(0, 500);
     console.error(`[job ${jobId}] failed:`, message);
-    await reportStatus(jobId, projectId, {
+    const failureDelivered = await report({
       status: "failed",
       error_reason: message,
       error: { code: "worker_error", message },
     });
-    jobs.set(jobId, { status: "failed", finished_at: Date.now() });
+    jobs.set(jobId, { status: failureDelivered ? "failed" : "callback_pending", finished_at: Date.now() });
   } finally {
     rm(dir, { recursive: true, force: true }).catch(() => {});
   }
@@ -1448,4 +1438,5 @@ async function putSigned(url, bytes, contentType) {
 app.listen(PORT, () => {
   console.log(`signal-render worker listening on :${PORT} (status endpoint: ${STATUS_ENDPOINT || "unset"})`);
 });
+
 

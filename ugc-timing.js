@@ -38,3 +38,15 @@ export function retimeScenes(scenes, durs) {
     return { ...s, start_ms: start, end_ms: Math.round(t * 1000) };
   });
 }
+
+
+/** Keep full narration within the timeline; large mismatches require a new script. */
+export function voiceoverFitPlan(originalSec, totalSec) {
+  if (!Number.isFinite(originalSec) || originalSec <= 0 || !Number.isFinite(totalSec) || totalSec <= 0) throw new Error('voiceover duration is invalid');
+  const coverage = originalSec / totalSec;
+  if (coverage < 0.55) throw new Error(`narration covers only ${Math.round(coverage * 100)}% of the video; regenerate the script before publishing`);
+  if (coverage >= 0.9 && coverage <= 1) return {coverage,adjust:false,tempo:1};
+  const tempo = originalSec / (totalSec * (coverage > 1 ? 0.98 : 0.96));
+  if (tempo < 0.5 || tempo > 1.2) throw new Error('narration cannot fit without excessive pacing correction; shorten or regenerate the script');
+  return {coverage,adjust:true,tempo};
+}

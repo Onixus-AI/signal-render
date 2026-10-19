@@ -26,3 +26,13 @@ test("the UGC branch stretches scenes and rebuilds captions before cutting", asy
   assert.match(source, /ugcStretchDurations\(durs, voSecs\)/);
   assert.match(source, /buildUgcAss\(retimed, width, height, /);
 });
+
+
+test('global narration is never allowed to exceed the content without fitting', async()=>{
+  const {voiceoverFitPlan}=await import('./ugc-timing.js');
+  const fitted=voiceoverFitPlan(33,30);assert.equal(fitted.adjust,true);assert.ok(fitted.tempo>1);assert.ok(33/fitted.tempo<30);
+  assert.equal(voiceoverFitPlan(28,30).adjust,false);
+  assert.throws(()=>voiceoverFitPlan(50,30),/shorten or regenerate/);
+  assert.throws(()=>voiceoverFitPlan(10,30),/covers only/);
+  assert.throws(()=>voiceoverFitPlan(30,0),/invalid/);
+});
