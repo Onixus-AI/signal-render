@@ -1,6 +1,8 @@
+import { boundedBytes, videoResourceError } from "./resource-limits.js";
+import { JobJournal } from "./job-journal.js";
 import { deliverRenderStatus } from "./status-delivery.js";
 import {AD_CANVASES,adaptationArgs,adaptationUrl} from './ad-adaptation.js';
-// signal-render — stateless video worker.
+// signal-render — video worker with optional persistent acceptance/outbox.
 // Uploads via signed-URL PUTs; reports status back through the authenticated
 // signal-video-complete edge function. Never talks to Supabase directly and
 // never holds the service role key.
@@ -93,11 +95,15 @@ const STATUS_ENDPOINT = SUPABASE_URL
 
 /** @type {Map<string, { status: "queued"|"rendering"|"done"|"failed", finished_at?: number }>} */
 const jobs = new Map();
+const journalDirectory = process.env.RENDER_STATE_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH;
+const journal = journalDirectory ? await new JobJournal(join(journalDirectory, "video-jobs")).init() : null;
+let journalErrors = 0;
 // Terminal jobs are kept an hour so UI retries still dedupe, then dropped.
 const JOB_TTL_MS = 60 * 60 * 1000;
 setInterval(() => {
   const cutoff = Date.now() - JOB_TTL_MS;
-  for (const [id, j] of jobs) if (j.finished_at && j.finished_at < cutoff) jobs.delete(id);
+  for (const [id, j] of jobs) if (j.finished_at && j.finished_at < cutoff && j.status !== "callback_pending") jobs.delete(id);
+  journal?.prune().catch(() => { journalErrors++; console.error("Job journal retention cleanup failed"); });
 }, 5 * 60 * 1000).unref();
 
 // Every network call and every ffmpeg invocation is bounded. Renders run
@@ -723,7 +729,8 @@ async function reportStatus(jobId, projectId, patch, attemptToken = null) {
 }
 
 function validateVideoPayload(p) {
-  if (!p?.job_id || !p?.project_id) return "missing job_id or project_id";
+  if (typeof p?.job_id!=="string" || !p.job_id || p.job_id.length>128 || typeof p?.project_id!=="string" || !p.project_id || p.project_id.length>128) return "missing job_id or project_id";
+  const resourceError=videoResourceError(p); if(resourceError)return resourceError;
   if (!p?.upload_tokens?.video?.signed_url || !p?.upload_tokens?.video?.token) {
     return "missing upload_tokens.video (signed_url + token)";
   }
@@ -748,6 +755,10 @@ app.get("/health", async (_req, res) => {
     video_render: Boolean(ffmpegOk && RENDER_TOKEN),
     ad_adaptation: 1,
     callback_protocol: 2,
+    durable_video_jobs: Boolean(journal),
+    durable_callback_outbox: Boolean(journal),
+    journal_errors: journalErrors,
+    max_pending_video_jobs: 50,
     motion_graphics: effectcraftCli() ? "effectcraft" : "libass",
     html_render: chromiumOk,
     html_render_auth_required: Boolean(HTML_RENDER_TOKEN),
@@ -794,8 +805,10 @@ app.post("/render", auth, async (req, res) => {
   const w = Math.max(1, Math.min(4000, Math.round(Number(width) || 1080)));
   const h = Math.max(1, Math.min(4000, Math.round(Number(height) || 1080)));
   const type = format === "jpeg" || format === "jpg" ? "jpeg" : "png";
+  if(w*h*4>16_000_000)return res.status(400).json({error:"Image output exceeds the pixel limit"});
 
   let page = null;
+  if(pageSlots.waiting>=20)return res.status(503).json({error:"Image render queue is full; retry later"});
   await pageSlots.acquire();
   try {
     const browser = await getBrowser();
@@ -855,8 +868,10 @@ app.post("/render-html", htmlAuth, async (req, res) => {
   const h = Math.max(1, Math.min(4000, Math.round(Number(height) || 1080)));
   const scale = Math.max(1, Math.min(3, Number(device_scale) || 1));
   const type = format === "jpeg" || format === "jpg" ? "jpeg" : "png";
+  if(w*h*scale*scale>16_000_000)return res.status(400).json({error:"Image output exceeds the pixel limit"});
 
   let page = null;
+  if(pageSlots.waiting>=20)return res.status(503).json({error:"Image render queue is full; retry later"});
   await pageSlots.acquire();
   try {
     const browser = await getBrowser();
@@ -896,6 +911,7 @@ app.post("/screenshot-url", auth, async (req, res) => {
   const o = captureOptions(req.body || {});
 
   let page = null;
+  if(pageSlots.waiting>=20)return res.status(503).json({error:"Image render queue is full; retry later"});
   await pageSlots.acquire();
   try {
     const browser = await getBrowser();
@@ -1030,17 +1046,27 @@ app.post('/adapt-ad', auth, (req,res)=>{
  }).catch(e=>console.error('Adaptation pipeline failed',e.message));
 });
 
-app.post("/render-video", auth, (req, res) => {
+app.post("/render-video", auth, async (req, res) => {
   const payload = req.body;
   const err = validateVideoPayload(payload);
   if (err) return res.status(400).json({ error: err });
 
-  const existing = jobs.get(payload.job_id);
-  if (existing && (existing.status === "queued" || existing.status === "rendering")) {
-    if ((existing.attempt_token ?? null) !== (payload.attempt_token ?? null)) {
-      return res.status(409).json({ error: "A different attempt is still running; reconcile it before retrying" });
+  if (journal) {
+    let result;
+    try { result = await journal.accept(payload); }
+    catch { journalErrors++; return res.status(503).json({error:"Persistent job storage unavailable; job was not accepted"}); }
+    if (result.conflict) return res.status(409).json({error:"A different attempt is still running or awaiting completion delivery"});
+    if (result.full) return res.status(503).json({error:"Render queue is full; retry later"});
+    if (result.deduped) return res.status(202).json({ok:true,accepted:true,job_id:payload.job_id,deduped:true});
+  } else {
+    const existing = jobs.get(payload.job_id);
+    if (existing && (existing.attempt_token ?? null) === (payload.attempt_token ?? null)) {
+      return res.status(202).json({ok:true,accepted:true,job_id:payload.job_id,deduped:true});
     }
-    return res.status(202).json({ ok: true, accepted: true, job_id: payload.job_id, deduped: true });
+    if (existing && ["queued","rendering","callback_pending"].includes(existing.status)) {
+      return res.status(409).json({error:"A different attempt is still running; reconcile it before retrying"});
+    }
+    if (countByStatus("queued") + countByStatus("rendering") >= 50) return res.status(503).json({error:"Render queue is full; retry later"});
   }
 
   jobs.set(payload.job_id, { status: "queued", attempt_token: payload.attempt_token ?? null });
@@ -1056,10 +1082,25 @@ app.post("/render-video", auth, (req, res) => {
 
 async function processVideoJob(p) {
   const { job_id: jobId, project_id: projectId } = p;
-  const report = (patch) => reportStatus(jobId, projectId, patch, p.attempt_token ?? null);
+  const report = async (patch) => {
+    const terminal = ["rendered","failed"].includes(patch.status);
+    const token = p.attempt_token ?? null;
+    if (terminal && journal) {
+      try { await journal.terminal(jobId,token,{job_id:jobId,project_id:projectId,attempt_token:token,patch}); }
+      catch { journalErrors++; const error=new Error("Terminal journal write failed; retained render for recovery"); error.journalFailure=true; throw error; }
+    }
+    const delivered = await reportStatus(jobId,projectId,patch,token);
+    if (terminal && delivered && journal) {
+      try { await journal.delivered(jobId,token); }
+      catch { journalErrors++; console.error(`[job ${jobId}] delivery receipt journal write failed; callback will be retried`); }
+    }
+    return delivered;
+  };
+  if (journal) await journal.rendering(jobId,p.attempt_token ?? null);
   const isPremiumMotion = p.premium_motion === true;
   jobs.set(jobId, { status: "rendering", attempt_token: p.attempt_token ?? null });
   const started = Date.now();
+  const downloadBudget={bytes:0};
   const dir = await mkdtemp(join(tmpdir(), `sig-${jobId}-`));
 
   try {
@@ -1074,17 +1115,17 @@ async function processVideoJob(p) {
       const r = await fetchWithTimeout(s.image_url);
       if (!r.ok) throw new Error(`scene ${s.idx} download ${r.status}`);
       const file = join(dir, `scene-${s.idx}.jpg`);
-      await writeFile(file, Buffer.from(await r.arrayBuffer()));
+      await writeFile(file, await boundedBytes(r,downloadBudget));
       let videoFile = null;
       if (s.video_url && (isPremiumMotion || p.render_style === "ugc")) {
         const vr = await fetchWithTimeout(s.video_url);
         if (!vr.ok) throw new Error(`scene ${s.idx} generated motion clip download ${vr.status}`);
         videoFile = join(dir, `scene-${s.idx}.mp4`);
-        await writeFile(videoFile, Buffer.from(await vr.arrayBuffer()));
+        await writeFile(videoFile, await boundedBytes(vr,downloadBudget));
       } else if (s.video_url) {
         try {
           const vr = await fetchWithTimeout(s.video_url);
-          if (vr.ok) { videoFile = join(dir, `scene-${s.idx}.mp4`); await writeFile(videoFile, Buffer.from(await vr.arrayBuffer())); }
+          if (vr.ok) { videoFile = join(dir, `scene-${s.idx}.mp4`); await writeFile(videoFile, await boundedBytes(vr,downloadBudget)); }
           else console.warn(`[job ${jobId}] scene ${s.idx} stock video ${vr.status}; using still`);
         } catch (e) { console.warn(`[job ${jobId}] scene ${s.idx} stock fetch failed (${String(e?.message || e)}); using still`); }
       }
@@ -1111,7 +1152,7 @@ async function processVideoJob(p) {
     if (p.voiceover_url) {
       try {
         const vr = await fetchWithTimeout(p.voiceover_url);
-        if (vr.ok) { voicePath = join(dir, "voice.mp3"); await writeFile(voicePath, Buffer.from(await vr.arrayBuffer())); }
+        if (vr.ok) { voicePath = join(dir, "voice.mp3"); await writeFile(voicePath, await boundedBytes(vr,downloadBudget)); }
         else throw new Error(`voiceover download ${vr.status}`);
       } catch (e) {
         if (p.voiceover_enabled) throw new Error(`required voiceover fetch failed: ${String(e?.message || e)}`);
@@ -1141,7 +1182,7 @@ async function processVideoJob(p) {
     if (p.music_enabled !== false && p.music_url) {
       try {
         const mr = await fetchWithTimeout(p.music_url);
-        if (mr.ok) { musicPath = join(dir, "music.mp3"); await writeFile(musicPath, Buffer.from(await mr.arrayBuffer())); }
+        if (mr.ok) { musicPath = join(dir, "music.mp3"); await writeFile(musicPath, await boundedBytes(mr,downloadBudget)); }
         else throw new Error(`music download ${mr.status}`);
       } catch (e) {
         throw new Error(`required music fetch failed: ${String(e?.message || e)}`);
@@ -1155,7 +1196,7 @@ async function processVideoJob(p) {
         if (lr.ok) {
           const ct = String(lr.headers.get("content-type") || "");
           logoPath = join(dir, ct.includes("png") ? "logo.png" : "logo.img");
-          await writeFile(logoPath, Buffer.from(await lr.arrayBuffer()));
+          await writeFile(logoPath, await boundedBytes(lr,downloadBudget));
         } else throw new Error(`required logo download ${lr.status}`);
       } catch (e) { throw new Error(`required brand logo fetch failed: ${String(e?.message || e)}`); }
     }
@@ -1219,7 +1260,7 @@ async function processVideoJob(p) {
           const ar = await fetchWithTimeout(s.audio_url);
           if (!ar.ok) throw new Error(`scene ${s.idx} narration download ${ar.status}`);
           af = join(dir, `vo-${s.idx}.mp3`);
-          await writeFile(af, Buffer.from(await ar.arrayBuffer()));
+          await writeFile(af, await boundedBytes(ar,downloadBudget));
         }
         audioFiles.push(af);
       }
@@ -1408,8 +1449,9 @@ async function processVideoJob(p) {
       },
     });
 
-    jobs.set(jobId, { status: completionDelivered ? "done" : "callback_pending", finished_at: Date.now() });
+    jobs.set(jobId, { status: completionDelivered ? "done" : "callback_pending", attempt_token:p.attempt_token ?? null, finished_at: Date.now() });
   } catch (err) {
+    if (err.journalFailure) { console.error(`[job ${jobId}] ${err.message}`); return; }
     const message = String(err?.message || err).slice(0, 500);
     console.error(`[job ${jobId}] failed:`, message);
     const failureDelivered = await report({
@@ -1417,7 +1459,7 @@ async function processVideoJob(p) {
       error_reason: message,
       error: { code: "worker_error", message },
     });
-    jobs.set(jobId, { status: failureDelivered ? "failed" : "callback_pending", finished_at: Date.now() });
+    jobs.set(jobId, { status: failureDelivered ? "failed" : "callback_pending", attempt_token:p.attempt_token ?? null, finished_at: Date.now() });
   } finally {
     rm(dir, { recursive: true, force: true }).catch(() => {});
   }
@@ -1433,6 +1475,34 @@ async function putSigned(url, bytes, contentType) {
     const body = await r.text().catch(() => "");
     throw new Error(`upload ${r.status}: ${body.slice(0, 200)}`);
   }
+}
+
+// Restore only unfinished video work. Completed output is delivered from the
+// persisted outbox, never rerendered because its callback was unavailable.
+let outboxBusy = false;
+async function flushOutbox() {
+  if (!journal || outboxBusy || !STATUS_ENDPOINT) return;
+  outboxBusy = true;
+  try {
+    for (const entry of journal.pending()) {
+      const result = await deliverRenderStatus(STATUS_ENDPOINT,RENDER_TOKEN,entry.callback,{
+        fetcher:(url,options)=>fetchWithTimeout(url,options,TIMEOUTS.status_ms),
+      });
+      if (result.ok) {
+        await journal.delivered(entry.id,entry.attemptToken);
+        if(journal.entries.get(entry.id)?.attemptToken===entry.attemptToken)jobs.set(entry.id,{status:entry.callback.patch.status==="rendered"?"done":"failed",attempt_token:entry.attemptToken,finished_at:Date.now()});
+      }
+    }
+  } catch { journalErrors++; console.error("Persistent callback delivery failed; outbox retained"); }
+  finally { outboxBusy=false; }
+}
+if (journal) {
+  for (const entry of journal.entries.values()) jobs.set(entry.id,{status:entry.status,attempt_token:entry.attemptToken,...(["done","failed"].includes(entry.status)?{finished_at:entry.updatedAt}:{})});
+  for (const entry of journal.recoverable()) {
+    renderChain=renderChain.catch(()=>{}).then(()=>processVideoJob(entry.payload)).catch(error=>console.error(`[job ${entry.id}] recovery failed: ${error.message}`));
+  }
+  setInterval(flushOutbox,30_000).unref();
+  flushOutbox();
 }
 
 app.listen(PORT, () => {
