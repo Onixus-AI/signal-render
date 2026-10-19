@@ -21,3 +21,11 @@ test('campaign case studies retain provenance and cannot invent ad-level perform
  assert.equal(result.sources[0].kind,'platform_case_study');assert.match(result.sources[0].limitation,/not independently verified/);
  assert.equal((await crawlCaseStudies({topic:'bakery'},read)).status,'insufficient_evidence');
 });
+
+test('redirect aliases cannot manufacture a second campaign reference',async()=>{
+ const one='https://ads.tiktok.com/business/en/inspiration/actual-software';
+ const html='<main><h1>Software campaign</h1><p>'+'Software demonstration results. '.repeat(10)+'</p></main>';
+ const read=async url=>({url:one,html});
+ const r=await crawlCaseStudies({topic:'software',urls:['https://ads.tiktok.com/business/en/inspiration/alias-one','https://ads.tiktok.com/business/en/inspiration/alias-two']},read);
+ assert.equal(r.sources.length,1);assert.equal(r.status,'insufficient_evidence');
+});

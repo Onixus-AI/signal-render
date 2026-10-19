@@ -42,6 +42,8 @@ export async function crawlCaseStudies({topic='',urls=[]}={},read=readOfficialAd
  for(const url of queue.slice(0,8)){
   if(seen.has(url)||Date.now()>deadline||sources.length>=4)continue;seen.add(url);
   try{const page=await read(url);if(!caseStudyUrl(page.url))throw Error('case_study_redirect_blocked');const excerpt=caseStudyText(page.html),matched=relevantCase(excerpt,topic);
+   if(!/<h1\b/i.test(page.html)||/page not found|verify you are human|captcha/i.test(excerpt))throw Error('case_study_not_available');
+   if(sources.some(s=>s.url===caseStudyUrl(page.url)))continue;
    if(excerpt.length<150||!matched.length){failures.push({url,error:'case_study_not_relevant'});continue;}
    sources.push({url:caseStudyUrl(page.url),excerpt:excerpt.slice(0,6000),retrieved_at:new Date().toISOString(),kind:'platform_case_study',platform:'tiktok',matched_terms:matched,performance:'platform_reported_campaign_results',limitation:'Historical campaign-level results published by the platform, not independently verified. Does not establish current performance, competitor spend or a single creative’s causal effect.'});
   }catch(e){failures.push({url,error:e.message});}
