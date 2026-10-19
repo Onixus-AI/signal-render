@@ -1,3 +1,4 @@
+import {crawlPublicAds} from './ad-crawler.js';
 import { boundedBytes, videoResourceError } from "./resource-limits.js";
 import { JobJournal } from "./job-journal.js";
 import { deliverRenderStatus } from "./status-delivery.js";
@@ -903,6 +904,15 @@ app.post("/render-html", htmlAuth, async (req, res) => {
 // Real website -> PNG/JPEG. Used for b-roll that shows the actual product
 // (TWIN UGC ads screen-record onixus.xyz rather than inventing a UI). Bearer
 // RENDER_TOKEN, and only allowlisted hosts — see site-capture.js for why.
+let adResearchBusy=false;
+app.post('/research-ads',auth,async(req,res)=>{
+ if(adResearchBusy||pageSlots.waiting>=20)return res.status(409).json({error:'ad_research_busy'});
+ const topic=String(req.body?.topic??'').slice(0,400);const urls=Array.isArray(req.body?.urls)?req.body.urls.map(String).slice(0,6):[];
+ adResearchBusy=true;await pageSlots.acquire();
+ try{const result=await crawlPublicAds(await getBrowser(),{topic,urls});return res.json(result);}
+ catch{return res.status(503).json({error:'ad_research_unavailable'});}
+ finally{adResearchBusy=false;pageSlots.release();}
+});
 app.post("/screenshot-url", auth, async (req, res) => {
   const target = allowedCaptureUrl(req.body?.url, SCREENSHOT_HOSTS);
   if (!target) {

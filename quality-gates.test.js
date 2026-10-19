@@ -35,9 +35,10 @@ test("chromium pages are rate-limited and the template endpoint is authenticated
   assert.match(source, /app\.post\("\/render", auth,/);
   assert.match(source, /app\.post\("\/render-html", htmlAuth,/);
   assert.match(source, /app\.post\("\/screenshot-url", auth,/);
+  assert.match(source, /app\.post\('\/research-ads',auth,/);
   // Every Chromium route takes and releases a page slot.
-  assert.equal((source.match(/await pageSlots\.acquire\(\)/g) || []).length, 3);
-  assert.equal((source.match(/pageSlots\.release\(\)/g) || []).length, 3);
+  assert.equal((source.match(/await pageSlots\.acquire\(\)/g) || []).length, 4);
+  assert.equal((source.match(/pageSlots\.release\(\)/g) || []).length, 4);
   assert.match(source, /X-Img-Status/);
 });
 
