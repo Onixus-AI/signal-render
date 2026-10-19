@@ -7,15 +7,19 @@ import { readFile } from "node:fs/promises";
 // crashes the container on boot (ERR_MODULE_NOT_FOUND), as site-capture.js
 // did on the first /screenshot-url deploy.
 test("every local module server.js imports is copied into the image", async () => {
-  const server = await readFile(new URL("./server.js", import.meta.url), "utf8");
+  const queue=["server.js"],visited=new Set();
   const dockerfile = await readFile(new URL("./Dockerfile", import.meta.url), "utf8");
   const copied = dockerfile
     .split("\n")
     .filter((l) => /^COPY\s/.test(l))
     .flatMap((l) => l.replace(/^COPY\s+/, "").split(/\s+/).slice(0, -1));
-  const localImports = [...server.matchAll(/from\s+["']\.\/([^"']+)["']/g)].map((m) => m[1]);
-  assert.ok(localImports.length > 0);
-  for (const file of localImports) {
-    assert.ok(copied.includes(file), `${file} is imported by server.js but not COPY'd in the Dockerfile`);
+  while(queue.length){
+    const module=queue.shift();if(visited.has(module))continue;visited.add(module);
+    const source=await readFile(new URL('./'+module,import.meta.url),'utf8');
+    const localImports=[...source.matchAll(/from\s+["']\.\/([^"']+)["']/g)].map(m=>m[1]);
+    for(const file of localImports){
+      assert.ok(copied.includes(file),file+' is imported by '+module+' but is absent from the image');
+      queue.push(file);
+    }
   }
 });
