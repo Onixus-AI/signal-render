@@ -1,4 +1,5 @@
 // Subscription-free public-ad research using the worker's existing browser.
+import {crawlCaseStudies} from './ad-case-studies.js';
 import {lookup} from 'node:dns/promises';
 import {isIP} from 'node:net';
 export const AD_HOSTS=new Set(['ads.tiktok.com','www.facebook.com','facebook.com','adstransparency.google.com']);
@@ -9,10 +10,12 @@ export async function allowedResourceRequest(value,type,resolve=lookup){const u=
 export function publicIp(ip){if(isIP(ip)===4){const a=ip.split('.').map(Number);return !(a[0]===0||a[0]===10||a[0]===127||a[0]>=224||(a[0]===169&&a[1]===254)||(a[0]===172&&a[1]>=16&&a[1]<=31)||(a[0]===192&&a[1]===168)||(a[0]===100&&a[1]>=64&&a[1]<=127)||(a[0]===198&&(a[1]===18||a[1]===19)));}return false;}
 export async function allowedAdRequest(value,resolve=lookup){const u=adUrl(value);if(!u)return false;try{const ips=await resolve(u.hostname,{all:true,family:4});return ips.length>0&&ips.every(x=>publicIp(x.address));}catch{return false;}}
 export function individualAd(value){const u=adUrl(value);return !!u&&(/\/topads\/\d+/.test(u.pathname)||(u.hostname.includes('facebook')&&u.pathname.startsWith('/ads/library')&&/^\d+$/.test(u.searchParams.get('id')??''))||/\/advertiser\/[^/]+\/creative\/[^/]+/.test(u.pathname));}
-export function adSeeds(topic){const q=encodeURIComponent(String(topic).slice(0,120));return [`https://ads.tiktok.com/business/creativecenter/inspiration/topads/pc/en?keyword=${q}`,`https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=ALL&q=${q}`];}
+export function adSeeds(topic){const q=encodeURIComponent(String(topic).slice(0,120));return [`https://ads.tiktok.com/business/creativecenter/inspiration/topads/pc/en?search=${q}`,`https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=ALL&q=${q}`];}
 export async function crawlPublicAds(browser,{topic='',urls=[]}={}){
  const queue=(urls.length?urls:adSeeds(topic)).slice(0,6);if(queue.some(x=>!adUrl(x)))throw Error('unsupported_ad_url');
- const deadline=Date.now()+45000;const visited=new Set(),sources=[],failures=[];
+ const deadline=Date.now()+45000;
+ const cases=await crawlCaseStudies({topic,urls});if(cases.status==='ready')return cases;
+ const visited=new Set(),sources=[...cases.sources],failures=[...cases.failures];
  for(let i=0;i<queue.length&&visited.size<6&&sources.length<6&&Date.now()<deadline;i++){
   const url=queue[i];if(visited.has(url))continue;visited.add(url);let page;
   try{

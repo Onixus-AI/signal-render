@@ -28,7 +28,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY server.js ad-crawler.js resource-limits.js job-journal.js status-delivery.js motion-director.js site-capture.js ugc-timing.js ad-adaptation.js ugc-graphics.js effectcraft.js ./
+COPY server.js ad-crawler.js ad-case-studies.js resource-limits.js job-journal.js status-delivery.js motion-director.js site-capture.js ugc-timing.js ad-adaptation.js ugc-graphics.js effectcraft.js ./
 COPY templates ./templates
 COPY mograph ./mograph
 
