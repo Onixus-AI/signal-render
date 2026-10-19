@@ -28,7 +28,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY server.js motion-director.js site-capture.js ugc-timing.js ad-adaptation.js ugc-graphics.js effectcraft.js ./
+COPY server.js status-delivery.js motion-director.js site-capture.js ugc-timing.js ad-adaptation.js ugc-graphics.js effectcraft.js ./
 COPY templates ./templates
 COPY mograph ./mograph
 
@@ -38,3 +38,4 @@ ENV CHROMIUM_PATH=/usr/bin/chromium
 EXPOSE 8080
 
 CMD ["node", "server.js"]
+
