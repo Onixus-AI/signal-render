@@ -1,2 +1,2 @@
 node_modules/
-.server-patched.mjs
+.claude/settings.local.json
