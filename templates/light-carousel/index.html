@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Light Carousel</title>
+<style>
+  /* Light & vibrant carousel: the photo stays full colour (no dark scrim);
+     copy sits on a clean white panel. Brand colours come from accent / lav. */
+  @import url('https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700;800&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:1080px; height:1080px; overflow:hidden; }
+  body { font-family:'Jost',system-ui,sans-serif; background:#FFFFFF; }
+  :root{
+    --accent:#9945FF;   /* brand colour 1 */
+    --accent2:#14F195;  /* brand colour 2 */
+    --ink:#14121A;
+    --body:#3B3846;
+    --muted:#7A7686;
+    --panel:#FFFFFF;
+  }
+  .canvas{ position:relative; width:1080px; height:1080px; overflow:hidden; background:var(--panel); }
+
+  .photo{ position:absolute; left:0; right:0; top:0; height:560px; background-size:cover; background-position:center;
+    background-color:var(--accent); }
+  .canvas.cover .photo{ height:600px; }
+  .photo::after{ content:""; position:absolute; left:0; right:0; bottom:0; height:10px;
+    background:linear-gradient(90deg, var(--accent), var(--accent2)); }
+
+  .chip{ position:absolute; top:40px; left:44px; background:#FFFFFF; border-radius:18px; padding:14px 22px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.12); display:flex; align-items:center; }
+  .chip img{ height:40px; width:auto; display:block; }
+  .chip .bn{ font-weight:800; font-size:28px; color:var(--ink); letter-spacing:0.5px; }
+  .pill{ position:absolute; top:46px; right:44px; background:#FFFFFF; color:var(--ink); border-radius:999px;
+    padding:12px 22px; font-weight:600; font-size:20px; box-shadow:0 8px 24px rgba(0,0,0,0.12); }
+  .pill:empty{ display:none; }
+
+  .panel{ position:absolute; left:0; right:0; bottom:0; top:560px; padding:44px 72px 40px; display:flex; flex-direction:column; }
+  .canvas.cover .panel{ top:600px; }
+
+  .kicker{ font-weight:700; font-size:22px; letter-spacing:6px; text-transform:uppercase; color:var(--accent); }
+  h1{ font-weight:800; font-size:92px; line-height:0.95; letter-spacing:-2px; color:var(--ink); margin-top:10px; }
+  h1 .hl, h2 .hl{ color:var(--accent); }
+  .pills{ display:flex; gap:16px; margin-top:26px; }
+  .pills span{ border-radius:999px; padding:14px 30px; font-weight:600; font-size:24px; }
+  .pills .ghost{ border:2px solid var(--ink); color:var(--ink); }
+  .pills .fill{ background:var(--accent); color:#FFFFFF; }
+  .pills .fill b{ font-weight:800; }
+
+  .head{ display:flex; align-items:baseline; gap:20px; }
+  .num{ font-weight:800; font-size:64px; line-height:1; color:var(--accent2); -webkit-text-stroke:2px var(--accent); }
+  h2{ font-weight:800; font-size:68px; line-height:1; letter-spacing:-1.5px; color:var(--ink); }
+  .lead{ font-weight:400; font-size:28px; line-height:1.4; color:var(--body); margin-top:18px; max-width:34ch; }
+  .points{ display:flex; flex-wrap:wrap; gap:12px; margin-top:20px; }
+  .points .pt{ background:color-mix(in srgb, var(--accent) 12%, #FFFFFF); color:var(--ink); border-radius:999px;
+    padding:10px 20px; font-weight:600; font-size:22px; }
+
+  .footer{ margin-top:auto; display:flex; justify-content:space-between; align-items:center; }
+  .pg{ font-weight:600; font-size:20px; color:var(--muted); letter-spacing:1px; }
+  .swipe{ display:flex; align-items:center; gap:10px; font-weight:700; font-size:22px; color:var(--accent); }
+  .swipe .circle{ width:48px; height:48px; border-radius:50%; background:var(--accent); display:flex; align-items:center; justify-content:center; }
+  .swipe .circle svg{ width:22px; height:22px; }
+  .swipe.hide{ visibility:hidden; }
+</style>
+</head>
+<body>
+  <div class="canvas" id="canvas">
+    <div class="photo" id="photo"></div>
+    <div class="chip" id="chip"><img id="logo" alt="" style="display:none"><span class="bn" id="brandName"></span></div>
+    <div class="pill" id="datepill"></div>
+    <div class="panel">
+      <div id="coverBlock" style="display:none">
+        <div class="kicker" id="coverKicker"></div>
+        <h1 id="coverTitle"></h1>
+        <div class="pills" id="coverPills"></div>
+      </div>
+      <div id="topicBlock" style="display:none">
+        <div class="head"><div class="num" id="topicNum"></div><h2 id="topicTitle"></h2></div>
+        <div class="lead" id="topicLead"></div>
+        <div class="points" id="topicPoints"></div>
+      </div>
+      <div class="footer">
+        <div class="pg" id="pageLabel"></div>
+        <div class="swipe" id="swipe"><span id="swipeText">Swipe</span>
+          <span class="circle"><svg viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+        </div>
+      </div>
+    </div>
+  </div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const g = (k, d = '') => q.get(k) ?? d;
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  const hex = (v) => /^#?[0-9a-fA-F]{6}$/.test(v || '') ? '#' + v.replace(/^#/, '') : null;
+  const root = document.documentElement.style;
+  if (hex(g('accent'))) root.setProperty('--accent', hex(g('accent')));
+  if (hex(g('lav'))) root.setProperty('--accent2', hex(g('lav')));
+
+  const slide = parseInt(g('slide', '1'), 10) || 1;
+  const total = parseInt(g('total', '6'), 10) || 6;
+  const waits = []; const imgStatus = { logo: 'none' };
+
+  const logoUrl = g('logo');
+  if (logoUrl) {
+    const el = document.getElementById('logo'); el.style.display = 'block'; imgStatus.logo = 'loading';
+    waits.push(new Promise((r) => { el.onload = () => { imgStatus.logo = el.naturalWidth > 0 ? 'ok' : 'fail'; r(); }; el.onerror = () => { imgStatus.logo = 'fail'; r(); }; el.src = logoUrl; }));
+  } else if (g('brand')) { document.getElementById('brandName').textContent = g('brand'); }
+  else { document.getElementById('chip').style.display = 'none'; }
+
+  const imgUrl = g('image', '');
+  if (imgUrl) {
+    imgStatus.hero = 'loading';
+    waits.push(new Promise((r) => {
+      const probe = new Image();
+      probe.onload = () => { imgStatus.hero = 'ok'; document.getElementById('photo').style.backgroundImage = `url("${imgUrl.replace(/"/g, '%22')}")`; r(); };
+      probe.onerror = () => { imgStatus.hero = 'fail'; r(); };
+      probe.src = imgUrl;
+    }));
+  }
+
+  document.getElementById('datepill').textContent = g('date', '');
+  document.getElementById('pageLabel').textContent = g('pageLabel', String(slide).padStart(2, '0') + ' / ' + String(total).padStart(2, '0'));
+  if (slide >= total) document.getElementById('swipe').classList.add('hide');
+  if (q.get('swipeText')) document.getElementById('swipeText').textContent = g('swipeText');
+
+  // {{word}} highlights in the brand colour; *word* bolds inside the filled pill.
+  const highlight = (s) => esc(s).replace(/\{\{(.+?)\}\}/g, '<span class="hl">$1</span>');
+  if (slide === 1) {
+    document.getElementById('canvas').classList.add('cover');
+    document.getElementById('coverBlock').style.display = 'block';
+    document.getElementById('coverKicker').textContent = g('kicker', '');
+    document.getElementById('coverTitle').innerHTML = highlight(g('title', ''));
+    const pills = [];
+    if (g('pillGhost')) pills.push(`<span class="ghost">${esc(g('pillGhost'))}</span>`);
+    if (g('pillFill')) pills.push(`<span class="fill">${esc(g('pillFill')).replace(/\*(.+?)\*/g, '<b>$1</b>')}</span>`);
+    document.getElementById('coverPills').innerHTML = pills.join('');
+  } else {
+    document.getElementById('topicBlock').style.display = 'block';
+    document.getElementById('topicNum').textContent = g('num', String(slide - 1).padStart(2, '0'));
+    document.getElementById('topicTitle').innerHTML = highlight(g('title', ''));
+    document.getElementById('topicLead').textContent = g('lead', '');
+    const items = g('points', '').split('|').map((s) => s.trim()).filter(Boolean);
+    document.getElementById('topicPoints').innerHTML = items.map((t) => `<span class="pt">${esc(t)}</span>`).join('');
+  }
+
+  const fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+  Promise.all([fontsReady, ...waits]).then(() => { document.body.dataset.imgStatus = JSON.stringify(imgStatus); document.body.dataset.ready = '1'; });
+</script>
+</body>
+</html>
