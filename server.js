@@ -293,6 +293,23 @@ async function stillMotionClip(img, outPath, durSec, w, h, treatment = "push_in"
   ]);
 }
 
+// ShotCraft's premium still treatment: one deliberate, deterministic camera
+// move per shot. It remains inside the existing Railway renderer so storage,
+// callbacks, approval, and publishing are unchanged.
+async function shotcraftClip(img, outPath, durSec, w, h, motion = "push_in") {
+  const frames = Math.max(2, Math.round(durSec * 30));
+  const zi = Math.round((w * 1.5) / 2) * 2, hi = Math.round((h * 1.5) / 2) * 2;
+  const moves = {
+    push_in: "z='min(zoom+0.0015,1.22)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'",
+    pull_back: "z='if(eq(on,1),1.22,max(zoom-0.0015,1.0))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'",
+    pan_left: "z='1.12':x='min(iw-iw/zoom,on*1.5)':y='ih/2-(ih/zoom/2)'",
+    pan_right: "z='1.12':x='max(0,iw-iw/zoom-on*1.5)':y='ih/2-(ih/zoom/2)'",
+    drift_up: "z='1.12':x='iw/2-(iw/zoom/2)':y='max(0,ih-ih/zoom-on*1.2)'",
+    drift_down: "z='1.12':x='iw/2-(iw/zoom/2)':y='min(ih-ih/zoom,on*1.2)'",
+  };
+  const move = moves[motion] || moves.push_in;
+  const vf = `scale=${zi}:${hi}:force_original_aspect_ratio=increase,crop=${zi}:${hi},zoompan=${move}:d=${frames}:s=${w}x${h}:fps=30,setsar=1,format=yuv420p`;
+  await runFfmpeg(["-y", "-i", img, "-vf", vf, "-frames:v", String(frames), "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "19", outPath]);
 // Premium clips already contain generated motion. Normalize their framing and
 // duration only; missing Premium clips are rejected by the Premium assembly
 // branch instead of being replaced with still-image motion.
@@ -537,6 +554,7 @@ function buildAudioGraph(fc, { voiceIdx, musicIdx, total }) {
 
 // Join scene clips with restrained transitions; optionally brand-logo watermark, burned
 // captions, and voiceover/music mux.
+async function xfadeAssemble(clips, durs, outPath, w, h, voicePath, musicPath, assPath, logoPath, T, transitions = []) {
 async function xfadeAssemble(clips, durs, outPath, w, h, voicePath, musicPath, assPath, logoPath, transitionPlan = []) {
   const n = clips.length;
   const args = ["-y"];
@@ -559,6 +577,9 @@ async function xfadeAssemble(clips, durs, outPath, w, h, voicePath, musicPath, a
     let acc = durs[0], prev = inputLabels[0];
     for (let k = 1; k < n; k++) {
       const out = `vx${k}`;
+      const transition = ["fade", "smoothleft", "smoothright", "circleopen", "fadeblack"].includes(transitions[k - 1]) ? transitions[k - 1] : "fade";
+      fc.push(`[${prev}][${k}:v]xfade=transition=${transition}:duration=${T.toFixed(3)}:offset=${off.toFixed(3)}[${out}]`);
+      acc = acc + durs[k] - T;
       const raw = `vr${k}`;
       const transition = normalizeTransitionIntent(transitionPlan[k - 1]?.transition) || "fade";
       const T = Math.max(0, Number(transitionPlan[k - 1]?.duration_sec) || 0);
@@ -1250,6 +1271,14 @@ async function processVideoJob(p) {
 
     // Cinematic: per-scene motion clips joined with restrained transitions. Falls back to
     // the simple path on any ffmpeg error so a render never fails outright.
+    const requestedShotcraft = p.render_style === "shotcraft";
+    let renderStyle = requestedShotcraft ? "shotcraft" : "cinematic";
+    try {
+      // Each crossfade overlaps adjacent clips by T, shortening the timeline by
+      // T*(n-1). Pad every clip except the last by T so the assembled video runs
+      // exactly the scene-sum duration — and each transition then starts exactly
+      // at the original scene boundary, keeping the ASS captions in sync.
+      const T = Math.min(0.6, Math.min(...durs) * 0.4); // transition < shortest clip
     const requestedRenderStyle = "scene_aware_cinematic";
     let renderStyle = requestedRenderStyle;
     let motionPlan = [];
@@ -1348,6 +1377,18 @@ async function processVideoJob(p) {
           try {
             await stockClip(scenePaths[i].videoFile, cp, clipDurs[i], width, height);
           } catch (e) {
+            console.warn(`[job ${jobId}] scene ${scenePaths[i].idx} stock clip failed (${String(e?.message || e).slice(0, 120)}); Ken Burns fallback`);
+            if (requestedShotcraft) await shotcraftClip(scenePaths[i].file, cp, clipDurs[i], width, height, scenes[i]?.shotcraft_motion);
+            else await kenBurnsClip(scenePaths[i].file, cp, clipDurs[i], width, height);
+          }
+        } else {
+          if (requestedShotcraft) await shotcraftClip(scenePaths[i].file, cp, clipDurs[i], width, height, scenes[i]?.shotcraft_motion);
+          else await kenBurnsClip(scenePaths[i].file, cp, clipDurs[i], width, height);
+        }
+        clips.push(cp);
+      }
+      const transitions = requestedShotcraft ? scenes.map((s) => s.shotcraft_transition) : [];
+      await xfadeAssemble(clips, clipDurs, outPath, width, height, voicePath, musicPath, assPath, logoPath, T, transitions);
             console.warn(`[job ${jobId}] scene ${scenePaths[i].idx} stock clip failed (${String(e?.message || e).slice(0, 120)}); still-motion fallback`);
             await stillMotionClip(scenePaths[i].file, cp, clipDurs[i], width, height, motionPlan[i]?.treatment);
           }
@@ -1438,6 +1479,8 @@ async function processVideoJob(p) {
         has_audio: hasAudio,
         voiceover_included: Boolean(voicePath),
         music_included: Boolean(musicPath),
+        render_style: renderStyle,
+        shotcraft_version: requestedShotcraft ? "video-shotcraft-v1" : null,
         voiceover_original_sec: voiceMeta?.originalSec ?? null,
         voiceover_adjusted_sec: voiceMeta?.adjustedSec ?? null,
         voiceover_timing_adjusted: voiceMeta?.adjusted ?? false,
