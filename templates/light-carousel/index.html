@@ -104,7 +104,8 @@
   if (logoUrl) {
     const el = document.getElementById('logo'); el.style.display = 'block'; imgStatus.logo = 'loading';
     waits.push(new Promise((r) => { el.onload = () => { imgStatus.logo = el.naturalWidth > 0 ? 'ok' : 'fail'; r(); }; el.onerror = () => { imgStatus.logo = 'fail'; r(); }; el.src = logoUrl; }));
-  } else { document.getElementById('brandName').textContent = g('brand', ''); }
+  } else if (g('brand')) { document.getElementById('brandName').textContent = g('brand'); }
+  else { document.getElementById('chip').style.display = 'none'; }
 
   const imgUrl = g('image', '');
   if (imgUrl) {
