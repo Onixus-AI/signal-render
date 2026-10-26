@@ -36,3 +36,27 @@ test('global narration is never allowed to exceed the content without fitting', 
   assert.throws(()=>voiceoverFitPlan(10,30),/covers only/);
   assert.throws(()=>voiceoverFitPlan(30,0),/invalid/);
 });
+
+import { motionTimelineFit, MOTION_TAIL_SEC } from "./ugc-timing.js";
+
+test("motion: the timeline grows to a long narration instead of speeding the voice", () => {
+  const fit = motionTimelineFit(30, 37.5);
+  assert.equal(fit.total, 37.5 + MOTION_TAIL_SEC);
+  assert.ok(Math.abs(fit.scale - (37.5 + MOTION_TAIL_SEC) / 30) < 1e-9);
+});
+
+test("motion: the timeline shrinks to a short narration instead of slowing the voice", () => {
+  const fit = motionTimelineFit(45, 34.7);
+  assert.ok(Math.abs(fit.total - 35.9) < 1e-9);
+  assert.ok(fit.scale < 1);
+});
+
+test("motion: a near fit keeps the planned timeline", () => {
+  assert.deepEqual(motionTimelineFit(30, 28.5), { scale: 1, total: 30 });
+});
+
+test("motion: bounds", () => {
+  assert.equal(motionTimelineFit(30, 4).total, 10);
+  assert.throws(() => motionTimelineFit(30, 90), /longer than a 75s ad/);
+  assert.throws(() => motionTimelineFit(30, 0), /invalid/);
+});

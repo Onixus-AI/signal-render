@@ -35,7 +35,7 @@ import {
   transitionDuration,
 } from "./motion-director.js";
 import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedHosts, pickFocusOffset, stripWindow } from "./site-capture.js";
-import { retimeScenes, ugcStretchDurations, voiceoverFitPlan } from "./ugc-timing.js";
+import { motionTimelineFit, retimeScenes, ugcStretchDurations, voiceoverFitPlan } from "./ugc-timing.js";
 import { buildGraphicAss, graphicStyles, lowerThirdEvents } from "./ugc-graphics.js";
 import { effectcraftCli, renderBrandBeat } from "./effectcraft.js";
 import { buildBeatStoryProps, renderBeatStory, remotionAvailable } from "./motion-render.js";
@@ -1172,7 +1172,16 @@ async function processVideoJob(p) {
         console.warn(`[job ${jobId}] optional voiceover fetch failed (${String(e?.message || e)})`);
       }
     }
-    if (voicePath) {
+    if (voicePath && p.render_style === "motion" && !isUgc) {
+      // Motion: stretch or shrink the scenes to the narration; the voice is
+      // never re-paced. Scene proportions (the planner's beat weighting) stay.
+      const timelineSec = durs.reduce((a, b) => a + b, 0);
+      const voiceSec = await probeDuration(voicePath);
+      const fit = motionTimelineFit(timelineSec, voiceSec);
+      if (fit.scale !== 1) durs.splice(0, durs.length, ...durs.map((d) => d * fit.scale));
+      voiceMeta = { path: voicePath, originalSec: voiceSec, adjustedSec: voiceSec, adjusted: false, coverage: voiceSec / timelineSec, timelineScale: fit.scale };
+      console.log(`[job ${jobId}] motion timeline ${timelineSec.toFixed(2)}s -> ${durs.reduce((a, b) => a + b, 0).toFixed(2)}s for ${voiceSec.toFixed(2)}s narration`);
+    } else if (voicePath) {
       voiceMeta = await fitVoiceoverToTimeline(dir, voicePath, durs.reduce((a, b) => a + b, 0));
       voicePath = voiceMeta.path;
     }
@@ -1317,7 +1326,8 @@ async function processVideoJob(p) {
     const isMotion = p.render_style === "motion" && !isUgc;
     if (isMotion) {
       await report({ progress: 35, current_step: "motion_render" });
-      const props = buildBeatStoryProps(p, width, height);
+      // Scene times follow the (possibly rescaled) timeline above.
+      const props = buildBeatStoryProps({ ...p, scenes: retimeScenes(sorted, durs) }, width, height);
       const motionPath = join(dir, "motion.mp4");
       await renderBeatStory({ props, outPath: motionPath });
       const total = durs.reduce((a, b) => a + b, 0);
@@ -1473,6 +1483,8 @@ async function processVideoJob(p) {
         voiceover_adjusted_sec: voiceMeta?.adjustedSec ?? null,
         voiceover_timing_adjusted: voiceMeta?.adjusted ?? false,
         voiceover_coverage_ratio: voiceMeta?.coverage ?? null,
+        // Motion only: how much the timeline was stretched to fit the voice.
+        motion_timeline_scale: voiceMeta?.timelineScale ?? null,
         premium_motion: isPremiumMotion,
         premium_scene_count: isPremiumMotion ? scenePaths.filter((s) => Boolean(s.videoFile)).length : 0,
         premium_scene_indices: isPremiumMotion ? scenePaths.filter((s) => Boolean(s.videoFile)).map((s) => s.idx) : [],
