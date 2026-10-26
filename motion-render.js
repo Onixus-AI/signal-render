@@ -39,6 +39,8 @@ export function buildBeatStoryProps(p, width = 1080, height = 1920) {
       website: p?.brand?.website || "",
     },
     cta: String(p?.cta?.text || "").trim().slice(0, 48),
+    // The Rise: two doors on the end card (main action, low-commitment step).
+    ctaDoors: (Array.isArray(p?.plan?.cta_doors) ? p.plan.cta_doors : []).map((d) => String(d || "").trim().slice(0, 40)).filter(Boolean).slice(0, 2),
     fonts: {
       heading: String(p?.fonts?.heading || "Inter").slice(0, 60),
       body: String(p?.fonts?.body || "Inter").slice(0, 60),

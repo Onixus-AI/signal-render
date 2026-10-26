@@ -52,3 +52,21 @@ test("reads Signal's { primary, secondary, accent } brand colours", () => {
   assert.equal(p.brand.primary, "#9254FF");
   assert.equal(p.brand.accent, "#00CBE8");
 });
+
+test("The Rise: two CTA doors come from the plan", () => {
+  const p = buildBeatStoryProps({ plan: { cta_doors: ["Book a free call", "  Join the free community ", "extra"] } });
+  assert.deepEqual(p.ctaDoors, ["Book a free call", "Join the free community"]);
+  assert.deepEqual(buildBeatStoryProps({}).ctaDoors, []);
+});
+
+test("The Rise beats keep their labels through to the template", () => {
+  const p = buildBeatStoryProps({ scenes: [{ idx: 1, end_ms: 1000, beat: "mechanism+expectation" }, { idx: 2, end_ms: 2000, beat: "cta_two_door", endcard: true }] });
+  assert.deepEqual(p.scenes.map((s) => s.beat), ["mechanism+expectation", "cta_two_door"]);
+});
+
+test("BeatStory matches the CTA by beat id, so 'expectation' is not an end card", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("./motion/BeatStory.jsx", import.meta.url), "utf8");
+  assert.match(src, /b\.split\("\+"\)\.some\(\(t\) => t === "cta" \|\| t\.startsWith\("cta_"\)\)/);
+  assert.doesNotMatch(src, /b\.includes\("cta"\)/);
+});

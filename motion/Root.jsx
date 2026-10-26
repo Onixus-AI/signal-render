@@ -6,7 +6,7 @@ const DEFAULTS = {
   width: 1080, height: 1920, totalMs: 30000,
   scenes: [],
   brand: { primary: "#9254FF", accent: "#00CBE8", businessName: "Onixus", logoUrl: null, tagline: "", website: "" },
-  cta: "", fonts: { heading: "Inter", body: "Inter" }, eyebrow: "",
+  cta: "", ctaDoors: [], fonts: { heading: "Inter", body: "Inter" }, eyebrow: "",
 };
 
 export const Root = () => (
