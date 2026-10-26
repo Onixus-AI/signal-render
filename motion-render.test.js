@@ -46,3 +46,9 @@ test("empty payload still renders a valid one-second composition", () => {
   assert.equal(p.brand.primary, "#9254FF");
   assert.deepEqual(p.scenes, []);
 });
+
+test("reads Signal's { primary, secondary, accent } brand colours", () => {
+  const p = buildBeatStoryProps({ brand: { colors: { primary: "#9254FF", secondary: "#0B1B33", accent: "#00CBE8" } } });
+  assert.equal(p.brand.primary, "#9254FF");
+  assert.equal(p.brand.accent, "#00CBE8");
+});
