@@ -45,14 +45,21 @@ function useAdFonts(fonts) {
 
 const stack = (name, fallback) => (name ? `'${name}', ${fallback}` : fallback);
 
+// Value Ladder: hook, promise, value_N, open_loop_N, cta.
+// The Rise: introduction, struggle, rise, proof, mechanism, expectation, cta_two_door.
 function beatKind(beat, idx, count) {
   const b = String(beat || "");
-  if (b.includes("cta") || idx === count - 1) return "cta";
-  if (b.startsWith("hook")) return "hook";
-  if (b.startsWith("promise")) return "promise";
+  // Match beat ids, not substrings: "expectation" contains "cta".
+  if (b.split("+").some((t) => t === "cta" || t.startsWith("cta_")) || idx === count - 1) return "cta";
+  if (b.startsWith("hook") || b.startsWith("introduction")) return "hook";
+  if (b.startsWith("promise") || b.startsWith("struggle") || b.startsWith("rise") || b.startsWith("expectation")) return "promise";
   if (b.startsWith("open_loop")) return "loop";
+  if (b.startsWith("mechanism")) return "mechanism";
   return "value";
 }
+// Small label above the headline so the viewer feels the story move.
+const BEAT_LABELS = { struggle: "The struggle", rise: "The turning point", expectation: "What to expect", proof: "Proof", mechanism: "How it works" };
+const beatLabel = (beat) => BEAT_LABELS[String(beat || "").split("+")[0]] || "";
 const valueNumber = (beat) => { const m = String(beat || "").match(/value_(\d)/); return m ? Number(m[1]) : null; };
 const hasTrailingLoop = (beat) => /value_\d\+open_loop/.test(String(beat || ""));
 
@@ -141,6 +148,7 @@ function Promise({ scene, fonts, brand, durationF }) {
         <Img src={scene.imageSrc} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
       </div> : null}
       <div style={{ position: "absolute", left: 80, right: 80, top: scene.imageSrc ? 900 : 640 }}>
+        {beatLabel(scene.beat) ? <div style={{ fontFamily: fonts.bodyStack, fontSize: 30, fontWeight: 700, letterSpacing: "0.16em", color: brand.primary, textTransform: "uppercase", marginBottom: 22 }}>{beatLabel(scene.beat)}</div> : null}
         <Words text={scene.text} size={size} font={fonts.headingStack} start={3} />
         <div style={{ marginTop: 44, width: 160, height: 10, borderRadius: 5, background: `linear-gradient(90deg, ${brand.primary}, ${brand.accent})` }} />
       </div>
@@ -159,7 +167,7 @@ function Value({ scene, fonts, brand, durationF }) {
       <div style={{ position: "absolute", left: 80, right: 80, top: 230, display: "flex", alignItems: "center", gap: 26 }}>
         {n ? <div style={{ width: 96, height: 96, borderRadius: 48, background: brand.primary, color: "#fff", fontFamily: fonts.headingStack, fontWeight: 800, fontSize: 52, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{n}</div> : null}
         <div style={{ flex: 1 }}>
-          {site ? <div style={{ fontFamily: fonts.bodyStack, fontSize: 28, fontWeight: 700, letterSpacing: "0.14em", color: SLATE, textTransform: "uppercase", marginBottom: 8 }}>Real example</div> : null}
+          {site || beatLabel(scene.beat) ? <div style={{ fontFamily: fonts.bodyStack, fontSize: 28, fontWeight: 700, letterSpacing: "0.14em", color: SLATE, textTransform: "uppercase", marginBottom: 8 }}>{site ? (String(scene.beat || "").startsWith("proof") ? "Proof · real example" : "Real example") : beatLabel(scene.beat)}</div> : null}
           <Words text={scene.text} size={size} font={fonts.headingStack} start={3} width={800} />
         </div>
       </div>
@@ -192,7 +200,23 @@ function Loop({ scene, fonts, brand, durationF }) {
   );
 }
 
-function Cta({ scene, fonts, brand, cta, durationF }) {
+function Mechanism({ scene, fonts, brand, durationF }) {
+  const frame = useCurrentFrame();
+  const size = fitSize(scene.text, 100, 68);
+  const bar = interpolate(frame, [6, 22], [0, 1], { ...clamp, easing: ease });
+  return (
+    <Enter durationF={durationF}>
+      <AbsoluteFill style={{ background: `linear-gradient(160deg, ${brand.primary} 0%, ${brand.accent} 140%)` }} />
+      <div style={{ position: "absolute", left: 80, right: 80, top: 600 }}>
+        <div style={{ fontFamily: fonts.bodyStack, fontSize: 32, fontWeight: 700, color: "rgba(255,255,255,0.9)", letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 30 }}>How it works</div>
+        <Words text={scene.text} size={size} color="#fff" font={fonts.headingStack} start={2} />
+        <div style={{ marginTop: 50, height: 10, width: `${bar * 70}%`, borderRadius: 5, background: "rgba(255,255,255,0.9)" }} />
+      </div>
+    </Enter>
+  );
+}
+
+function Cta({ scene, fonts, brand, cta, doors = [], durationF }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const s = spring({ frame, fps, config: { damping: 14, stiffness: 110 } });
@@ -205,7 +229,14 @@ function Cta({ scene, fonts, brand, cta, durationF }) {
         {brand.logoUrl ? <Img src={brand.logoUrl} style={{ width: 300, height: 300, objectFit: "contain" }} /> : null}
         {name ? <div style={{ fontFamily: fonts.headingStack, fontSize: 88, fontWeight: 800, letterSpacing: "0.24em", color: NAVY, marginTop: 30, marginLeft: "0.24em", textAlign: "center" }}>{name}</div> : null}
         {brand.tagline ? <div style={{ fontFamily: fonts.bodyStack, fontSize: 40, color: SLATE, marginTop: 16, textAlign: "center" }}>{brand.tagline}</div> : null}
-        {ctaText ? <div style={{ marginTop: 80, padding: "34px 70px", borderRadius: 60, background: brand.primary, color: "#fff", fontFamily: fonts.bodyStack, fontSize: 46, fontWeight: 700, opacity: btn, transform: `translateY(${(1 - btn) * 24}px)`, textAlign: "center" }}>{ctaText}</div> : null}
+        {doors.length === 2 ? (
+          // The Rise: two doors, the main action filled, the easy step outlined.
+          <div style={{ marginTop: 70, display: "flex", flexDirection: "column", alignItems: "center", gap: 22, opacity: btn, transform: `translateY(${(1 - btn) * 24}px)` }}>
+            <div style={{ padding: "30px 64px", borderRadius: 60, background: brand.primary, color: "#fff", fontFamily: fonts.bodyStack, fontSize: 44, fontWeight: 700, textAlign: "center" }}>{doors[0]}</div>
+            <div style={{ fontFamily: fonts.bodyStack, fontSize: 30, color: SLATE, letterSpacing: "0.12em", textTransform: "uppercase" }}>or</div>
+            <div style={{ padding: "26px 60px", borderRadius: 60, border: `4px solid ${brand.primary}`, color: brand.primary, fontFamily: fonts.bodyStack, fontSize: 40, fontWeight: 700, textAlign: "center" }}>{doors[1]}</div>
+          </div>
+        ) : ctaText ? <div style={{ marginTop: 80, padding: "34px 70px", borderRadius: 60, background: brand.primary, color: "#fff", fontFamily: fonts.bodyStack, fontSize: 46, fontWeight: 700, opacity: btn, transform: `translateY(${(1 - btn) * 24}px)`, textAlign: "center" }}>{ctaText}</div> : null}
         {brand.website ? <div style={{ marginTop: 30, fontFamily: fonts.bodyStack, fontSize: 34, color: SLATE, opacity: btn }}>{brand.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}</div> : null}
       </div>
     </AbsoluteFill>
@@ -213,7 +244,7 @@ function Cta({ scene, fonts, brand, cta, durationF }) {
 }
 
 export const BeatStory = (props) => {
-  const { scenes = [], brand = {}, cta = "", fonts = {}, eyebrow = "" } = props;
+  const { scenes = [], brand = {}, cta = "", ctaDoors = [], fonts = {}, eyebrow = "" } = props;
   useAdFonts(fonts);
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
@@ -238,7 +269,8 @@ export const BeatStory = (props) => {
             {kind === "hook" ? <Hook {...common} eyebrow={eyebrow} />
               : kind === "promise" ? <Promise {...common} />
               : kind === "loop" ? <Loop {...common} />
-              : kind === "cta" ? <Cta {...common} cta={cta} />
+              : kind === "mechanism" ? <Mechanism {...common} />
+              : kind === "cta" ? <Cta {...common} cta={cta} doors={ctaDoors} />
               : <Value {...common} />}
           </Sequence>
         );
