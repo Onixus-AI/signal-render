@@ -22,7 +22,11 @@ export function buildBeatStoryProps(p, width = 1080, height = 1920) {
     media: s.endcard ? "endcard" : s.media === "site_screenshot" || /-site-\d+\.(jpe?g|png)$/i.test(String(s.image_path || "")) ? "site" : "photo",
     imageSrc: s.image_url || null,
   }));
-  const colors = Array.isArray(p?.brand?.colors) ? p.brand.colors.filter((c) => /^#[0-9a-f]{6}$/i.test(String(c))) : [];
+  // Signal sends { primary, secondary, accent }; older payloads send a list.
+  const rawColors = p?.brand?.colors;
+  const colorList = Array.isArray(rawColors) ? rawColors
+    : rawColors && typeof rawColors === "object" ? [rawColors.primary, rawColors.accent, rawColors.secondary] : [];
+  const colors = colorList.filter((c) => /^#[0-9a-f]{6}$/i.test(String(c)));
   const totalMs = Math.max(1000, ...scenes.map((s) => s.endMs));
   return {
     width, height, totalMs, scenes,
