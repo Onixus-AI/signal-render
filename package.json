@@ -12,9 +12,14 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@remotion/bundler": "4.0.534",
+    "@remotion/renderer": "4.0.534",
     "express": "^4.19.2",
     "ffmpeg-static": "^5.2.0",
     "ffprobe-static": "^3.1.0",
-    "puppeteer-core": "^23.11.1"
+    "puppeteer-core": "^23.11.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.534"
   }
 }

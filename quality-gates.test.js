@@ -68,7 +68,7 @@ test("Premium assembles supplied scene video clips", () => {
 
 test("Premium fails when required clips are missing and bypasses Standard motion", () => {
   assert.match(source, /Premium motion clips missing for scene/);
-  assert.match(source, /if \(!isPremiumMotion && !isUgc\) try/);
+  assert.match(source, /if \(!isPremiumMotion && !isUgc && !isMotion\) try/);
   assert.match(source, /else await stillMotionClip\(s\.file, cp, clipDurs\[i\], width, height, "hold"\)/);
 });
 
@@ -105,7 +105,7 @@ test("UGC assembles per-scene narration instead of one voiceover track", () => {
   assert.match(source, /if \(isUgc\) \{\n      await report\(\{ progress: 40, current_step: "ugc_assemble" \}\)/);
   assert.match(source, /talking-head clip missing for scene/);
   assert.match(source, /await ugcAssemble\(/);
-  assert.match(source, /if \(isPremiumMotion && !isUgc\)/);
+  assert.match(source, /if \(isPremiumMotion && !isUgc && !isMotion\)/);
   // The UGC caption track is written for narration-only scenes too.
   assert.match(source, /isUgc \? s\.voiceover_text \|\| s\.on_screen_text : s\.on_screen_text/);
 });

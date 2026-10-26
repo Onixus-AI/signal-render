@@ -28,9 +28,11 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY server.js ad-crawler.js ad-case-studies.js resource-limits.js job-journal.js status-delivery.js motion-director.js site-capture.js ugc-timing.js ad-adaptation.js ugc-graphics.js effectcraft.js ./
+COPY server.js ad-crawler.js ad-case-studies.js resource-limits.js job-journal.js status-delivery.js motion-director.js site-capture.js ugc-timing.js ad-adaptation.js ugc-graphics.js effectcraft.js motion-render.js ./
 COPY templates ./templates
 COPY mograph ./mograph
+# Remotion BeatStory template (render_style "motion"), bundled at first use.
+COPY motion ./motion
 
 ENV NODE_ENV=production
 ENV PORT=8080
