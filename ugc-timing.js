@@ -50,3 +50,19 @@ export function voiceoverFitPlan(originalSec, totalSec) {
   if (tempo < 0.5 || tempo > 1.2) throw new Error('narration cannot fit without excessive pacing correction; shorten or regenerate the script');
   return {coverage,adjust:true,tempo};
 }
+
+
+/**
+ * Motion ads (Remotion BeatStory): the timeline follows the narration, never
+ * the other way round. Speeding a voice up or slowing it to 77% to fill a
+ * fixed slot is what made earlier ads sound rushed or sluggish. The narration
+ * plays at its natural pace and the end card gets a short tail.
+ */
+export const MOTION_TAIL_SEC = 1.2;
+export function motionTimelineFit(timelineSec, voiceSec, { minSec = 10, maxSec = 75 } = {}) {
+  if (!Number.isFinite(timelineSec) || timelineSec <= 0 || !Number.isFinite(voiceSec) || voiceSec <= 0) throw new Error('voiceover duration is invalid');
+  const total = Math.min(maxSec, Math.max(minSec, voiceSec + MOTION_TAIL_SEC));
+  if (voiceSec > maxSec) throw new Error(`narration runs ${voiceSec.toFixed(1)}s, longer than a ${maxSec}s ad; shorten the script`);
+  const scale = total / timelineSec;
+  return Math.abs(scale - 1) < 0.03 ? { scale: 1, total: timelineSec } : { scale, total };
+}
