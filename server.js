@@ -38,6 +38,7 @@ import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedH
 import { retimeScenes, ugcStretchDurations, voiceoverFitPlan } from "./ugc-timing.js";
 import { buildGraphicAss, graphicStyles, lowerThirdEvents } from "./ugc-graphics.js";
 import { effectcraftCli, renderBrandBeat } from "./effectcraft.js";
+import { buildBeatStoryProps, renderBeatStory, remotionAvailable } from "./motion-render.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(__dirname, "templates");
@@ -761,6 +762,8 @@ app.get("/health", async (_req, res) => {
     journal_errors: journalErrors,
     max_pending_video_jobs: 50,
     motion_graphics: effectcraftCli() ? "effectcraft" : "libass",
+    // Remotion BeatStory (render_style "motion"); needs Chromium.
+    motion_render: chromiumOk && remotionAvailable() ? "remotion_beatstory" : null,
     html_render: chromiumOk,
     html_render_auth_required: Boolean(HTML_RENDER_TOKEN),
     html_render_max_concurrency: MAX_HTML_CONCURRENCY,
@@ -1308,10 +1311,38 @@ async function processVideoJob(p) {
       renderStyle = "ugc";
     }
 
+    // Motion (Remotion BeatStory): the light, beat-driven ad with real example
+    // captures. Rendered muted, then voiceover + music are mixed exactly like
+    // the other paths. No silent fallback: a still reel is not a motion ad.
+    const isMotion = p.render_style === "motion" && !isUgc;
+    if (isMotion) {
+      await report({ progress: 35, current_step: "motion_render" });
+      const props = buildBeatStoryProps(p, width, height);
+      const motionPath = join(dir, "motion.mp4");
+      await renderBeatStory({ props, outPath: motionPath });
+      const total = durs.reduce((a, b) => a + b, 0);
+      const a = ["-y", "-i", motionPath];
+      const voiceIdx = voicePath ? 1 : null;
+      if (voicePath) a.push("-i", voicePath);
+      const musicIdx = musicPath ? 1 + (voicePath ? 1 : 0) : null;
+      if (musicPath) a.push("-i", musicPath);
+      // Video is stream-copied from the Remotion file, so it is mapped
+      // directly; only the audio goes through a filter graph.
+      const fc = [];
+      const aout = buildAudioGraph(fc, { voiceIdx, musicIdx, total });
+      if (fc.length) a.push("-filter_complex", fc.join(";"));
+      a.push("-map", "0:v");
+      if (aout) a.push("-map", `[${aout}]`, "-c:a", "aac", "-b:a", "160k");
+      else if (voiceIdx != null) a.push("-map", `${voiceIdx}:a`, "-c:a", "aac", "-b:a", "160k");
+      a.push("-c:v", "copy", "-t", total.toFixed(3), outPath);
+      await runFfmpeg(a);
+      renderStyle = "motion_beatstory";
+    }
+
     // Premium: generated per-scene motion clips joined with crossfades. This
     // branch has no slideshow fallback: a missing/broken clip must fail the
     // Premium job rather than masquerade as Standard.
-    if (isPremiumMotion && !isUgc) {
+    if (isPremiumMotion && !isUgc && !isMotion) {
       await report({ progress: 40, current_step: "premium_motion_assemble" });
       const missing = scenePaths.filter((s) => !s.videoFile && !s.endcard);
       if (missing.length) throw new Error(`Premium motion clips missing for scene ${missing.map((s) => s.idx).join(", ")}`);
@@ -1330,7 +1361,7 @@ async function processVideoJob(p) {
       renderStyle = "premium_motion";
     }
 
-    if (!isPremiumMotion && !isUgc) try {
+    if (!isPremiumMotion && !isUgc && !isMotion) try {
       motionPlan = planMotionTreatments(scenePaths);
       transitionPlan = planTransitions(scenePaths).map((t, i) => ({
         ...t,
