@@ -59,6 +59,12 @@ function beatKind(beat, idx, count) {
 }
 // Small label above the headline so the viewer feels the story move.
 const BEAT_LABELS = { struggle: "The struggle", rise: "The turning point", expectation: "What to expect", proof: "Proof", mechanism: "How it works" };
+// A real capture is the advertiser's own work: say whose (Omar: "it's supposed
+// to be an Onixus ad, not a RouteNorth ad").
+const siteLabel = (beat, name) => {
+  const by = String(name || "").trim() ? `Built by ${String(name).trim()}` : "Real example";
+  return String(beat || "").startsWith("proof") ? `Proof · ${by}` : by;
+};
 const beatLabel = (beat) => BEAT_LABELS[String(beat || "").split("+")[0]] || "";
 const valueNumber = (beat) => { const m = String(beat || "").match(/value_(\d)/); return m ? Number(m[1]) : null; };
 const hasTrailingLoop = (beat) => /value_\d\+open_loop/.test(String(beat || ""));
@@ -167,7 +173,7 @@ function Value({ scene, fonts, brand, durationF }) {
       <div style={{ position: "absolute", left: 80, right: 80, top: 230, display: "flex", alignItems: "center", gap: 26 }}>
         {n ? <div style={{ width: 96, height: 96, borderRadius: 48, background: brand.primary, color: "#fff", fontFamily: fonts.headingStack, fontWeight: 800, fontSize: 52, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{n}</div> : null}
         <div style={{ flex: 1 }}>
-          {site || beatLabel(scene.beat) ? <div style={{ fontFamily: fonts.bodyStack, fontSize: 28, fontWeight: 700, letterSpacing: "0.14em", color: SLATE, textTransform: "uppercase", marginBottom: 8 }}>{site ? (String(scene.beat || "").startsWith("proof") ? "Proof · real example" : "Real example") : beatLabel(scene.beat)}</div> : null}
+          {site || beatLabel(scene.beat) ? <div style={{ fontFamily: fonts.bodyStack, fontSize: 28, fontWeight: 700, letterSpacing: "0.14em", color: SLATE, textTransform: "uppercase", marginBottom: 8 }}>{site ? siteLabel(scene.beat, brand.businessName) : beatLabel(scene.beat)}</div> : null}
           <Words text={scene.text} size={size} font={fonts.headingStack} start={3} width={800} />
         </div>
       </div>

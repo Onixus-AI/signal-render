@@ -70,3 +70,10 @@ test("BeatStory matches the CTA by beat id, so 'expectation' is not an end card"
   assert.match(src, /b\.split\("\+"\)\.some\(\(t\) => t === "cta" \|\| t\.startsWith\("cta_"\)\)/);
   assert.doesNotMatch(src, /b\.includes\("cta"\)/);
 });
+
+test("Real captures are labelled as the advertiser's work", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("./motion/BeatStory.jsx", import.meta.url), "utf8");
+  assert.match(src, /`Built by \$\{String\(name\)\.trim\(\)\}`/);
+  assert.match(src, /siteLabel\(scene\.beat, brand\.businessName\)/);
+});
