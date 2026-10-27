@@ -1183,7 +1183,10 @@ async function processVideoJob(p) {
     let voiceMeta = null;
     // UGC narration is per scene (scenes[].audio_url), not one track.
     const isUgc = p.render_style === "ugc";
-    const perSceneNarration = p.render_style === "motion" && !isUgc && p.narration === "per_scene" && sorted.some((s) => s.audio_url);
+    // Line-by-line voice: motion ads, and cinematic still ads (not Premium
+    // AI-motion clips, whose lengths are fixed by the video model).
+    const perSceneNarration = (p.render_style === "motion" || (p.render_style !== "ugc" && !isPremiumMotion)) && !isUgc
+      && p.narration === "per_scene" && sorted.some((s) => s.audio_url);
     if (p.voiceover_enabled && !p.voiceover_url && !isUgc && !perSceneNarration) {
       throw new Error("voiceover enabled but voiceover_url is missing");
     }
@@ -1258,7 +1261,9 @@ async function processVideoJob(p) {
     const wantTags = isUgc && sorted.some((s) => s.lower_third);
     if (wantCaptions || wantTags) {
       assPath = join(dir, "captions.ass");
-      await writeFile(assPath, isUgc ? buildUgcAss(sorted, width, height, p.brand?.colors ?? {}, { captions: wantCaptions }) : buildAss(sorted, width, height));
+      // Line-by-line voice resizes the scenes: captions follow the new times.
+      const captionScenes = voiceMeta?.perScene ? retimeScenes(sorted, durs) : sorted;
+      await writeFile(assPath, isUgc ? buildUgcAss(sorted, width, height, p.brand?.colors ?? {}, { captions: wantCaptions }) : buildAss(captionScenes, width, height));
     }
     let musicPath = null;
     if (p.music_enabled !== false && !p.music_url) {
@@ -1549,6 +1554,7 @@ async function processVideoJob(p) {
         voiceover_coverage_ratio: voiceMeta?.coverage ?? null,
         // Motion only: how much the timeline was stretched to fit the voice.
         motion_timeline_scale: voiceMeta?.timelineScale ?? null,
+        per_scene_narration: voiceMeta?.perScene === true,
         premium_motion: isPremiumMotion,
         premium_scene_count: isPremiumMotion ? scenePaths.filter((s) => Boolean(s.videoFile)).length : 0,
         premium_scene_indices: isPremiumMotion ? scenePaths.filter((s) => Boolean(s.videoFile)).map((s) => s.idx) : [],
