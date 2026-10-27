@@ -116,3 +116,10 @@ test("narration is decoded to WAV before it is measured (exact length, no MP3 he
   assert.match(source, /af = await exactAudio\(raw, join\(dir, `vo-\$\{s\.idx\}\.wav`\)\);/);
   assert.match(source, /lineFiles\.push\(await exactAudio\(raw, join\(dir, `line-\$\{s\.idx\}\.wav`\)\)\);/);
 });
+
+test("cinematic still ads get line-by-line voice too, and captions follow the new scene times", async () => {
+  const src = await readFile(new URL("./server.js", import.meta.url), "utf8");
+  assert.match(src, /\(p\.render_style === "motion" \|\| \(p\.render_style !== "ugc" && !isPremiumMotion\)\) && !isUgc/);
+  assert.match(src, /const captionScenes = voiceMeta\?\.perScene \? retimeScenes\(sorted, durs\) : sorted;/);
+  assert.match(src, /per_scene_narration: voiceMeta\?\.perScene === true,/);
+});
