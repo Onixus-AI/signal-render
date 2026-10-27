@@ -9,6 +9,23 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
+const GRAPHIC_TYPES = ["strike_list", "flow", "before_after", "icon_row"];
+const ICON_NAMES = ["phone", "calendar", "chat", "check", "clock", "user", "globe", "bolt", "star", "dollar", "mail", "cart", "chart", "home", "wrench", "doc"];
+const txt = (v, n) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, n);
+/** Validate a motion-graphic spec from Signal; anything malformed is dropped. */
+export function cleanGraphic(g) {
+  if (!g || typeof g !== "object" || !GRAPHIC_TYPES.includes(g.type)) return null;
+  const items = (Array.isArray(g.items) ? g.items : []).slice(0, 5).map((it) => ({
+    label: txt(it?.label ?? it, 40),
+    icon: ICON_NAMES.includes(it?.icon) ? it.icon : "check",
+    struck: it?.struck === true,
+  })).filter((it) => it.label);
+  const list = (a) => (Array.isArray(a) ? a : []).slice(0, 3).map((x) => txt(x, 40)).filter(Boolean);
+  const out = { type: g.type, items, before: list(g.before), after: list(g.after), before_title: txt(g.before_title, 24), after_title: txt(g.after_title, 24) };
+  if (g.type === "before_after" ? !(out.before.length && out.after.length) : items.length < 2) return null;
+  return out;
+}
+
 /** Pure: worker payload -> BeatStory props. Exported for tests. */
 export function buildBeatStoryProps(p, width = 1080, height = 1920) {
   const planScenes = Array.isArray(p?.plan?.scenes) ? p.plan.scenes : [];
@@ -23,6 +40,7 @@ export function buildBeatStoryProps(p, width = 1080, height = 1920) {
     // A picture that failed Signal's "does it show what the scene says" check
     // is left out rather than shown: never confuse the viewer.
     imageSrc: s.media === "text_only" ? null : s.image_url || null,
+    graphic: cleanGraphic(s.graphic),
   }));
   // Signal sends { primary, secondary, accent }; older payloads send a list.
   const rawColors = p?.brand?.colors;
