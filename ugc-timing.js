@@ -66,3 +66,23 @@ export function motionTimelineFit(timelineSec, voiceSec, { minSec = 10, maxSec =
   const scale = total / timelineSec;
   return Math.abs(scale - 1) < 0.03 ? { scale: 1, total: timelineSec } : { scale, total };
 }
+
+/**
+ * Motion ads with one recording per scene: each scene lasts exactly as long
+ * as its own line, so the picture changes when the voice moves on (Omar,
+ * Oct 27: "not 5 seconds later"). The line starts LEAD seconds into its scene
+ * (the picture lands first, by a hair) and a short breath follows it. A scene
+ * with no line keeps its planned length; the end card always gets room to read.
+ */
+export const MOTION_LINE_LEAD_SEC = 0.12;
+export const MOTION_LINE_GAP_SEC = 0.3;
+export function motionSceneDurations(lineSecs, plannedSecs, { endcardMinSec = 2.5, endcardTailSec = 1.2 } = {}) {
+  const n = plannedSecs.length;
+  return plannedSecs.map((planned, i) => {
+    const line = Number(lineSecs[i]) || 0;
+    const last = i === n - 1;
+    if (line <= 0) return last ? Math.max(planned, endcardMinSec) : Math.max(1.2, planned);
+    const d = MOTION_LINE_LEAD_SEC + line + (last ? endcardTailSec : MOTION_LINE_GAP_SEC);
+    return last ? Math.max(d, endcardMinSec) : d;
+  });
+}

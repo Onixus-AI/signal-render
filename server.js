@@ -35,7 +35,7 @@ import {
   transitionDuration,
 } from "./motion-director.js";
 import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedHosts, pickFocusOffset, stripWindow } from "./site-capture.js";
-import { motionTimelineFit, retimeScenes, ugcStretchDurations, voiceoverFitPlan } from "./ugc-timing.js";
+import { MOTION_LINE_LEAD_SEC, motionSceneDurations, motionTimelineFit, retimeScenes, ugcStretchDurations, voiceoverFitPlan } from "./ugc-timing.js";
 import { buildGraphicAss, graphicStyles, lowerThirdEvents } from "./ugc-graphics.js";
 import { effectcraftCli, renderBrandBeat } from "./effectcraft.js";
 import { buildBeatStoryProps, renderBeatStory, remotionAvailable } from "./motion-render.js";
@@ -1159,7 +1159,8 @@ async function processVideoJob(p) {
     let voiceMeta = null;
     // UGC narration is per scene (scenes[].audio_url), not one track.
     const isUgc = p.render_style === "ugc";
-    if (p.voiceover_enabled && !p.voiceover_url && !isUgc) {
+    const perSceneNarration = p.render_style === "motion" && !isUgc && p.narration === "per_scene" && sorted.some((s) => s.audio_url);
+    if (p.voiceover_enabled && !p.voiceover_url && !isUgc && !perSceneNarration) {
       throw new Error("voiceover enabled but voiceover_url is missing");
     }
     if (p.voiceover_url) {
@@ -1172,7 +1173,45 @@ async function processVideoJob(p) {
         console.warn(`[job ${jobId}] optional voiceover fetch failed (${String(e?.message || e)})`);
       }
     }
-    if (voicePath && p.render_style === "motion" && !isUgc) {
+    if (perSceneNarration) {
+      // One line per scene: each scene lasts as long as its own line and the
+      // line starts as its picture lands, so voice and picture never drift.
+      const plannedSec = durs.reduce((a, b) => a + b, 0);
+      const lineFiles = [];
+      for (const s of sorted) {
+        if (!s.audio_url) { lineFiles.push(null); continue; }
+        const ar = await fetchWithTimeout(s.audio_url);
+        if (!ar.ok) throw new Error(`scene ${s.idx} narration download ${ar.status}`);
+        const f = join(dir, `line-${s.idx}.mp3`);
+        await writeFile(f, await boundedBytes(ar, downloadBudget));
+        lineFiles.push(f);
+      }
+      const lineSecs = await Promise.all(lineFiles.map((f) => (f ? probeDuration(f) : 0)));
+      durs.splice(0, durs.length, ...motionSceneDurations(lineSecs, durs));
+      const total = durs.reduce((a, b) => a + b, 0);
+      if (total > 75) throw new Error(`narration runs ${total.toFixed(1)}s, longer than a 75s ad; shorten the script`);
+      const args = ["-y"];
+      const filters = [];
+      const labels = [];
+      let t = 0;
+      lineFiles.forEach((f, i) => {
+        if (f) {
+          const k = labels.length;
+          args.push("-i", f);
+          const ms = Math.round((t + MOTION_LINE_LEAD_SEC) * 1000);
+          filters.push(`[${k}:a]aresample=44100,adelay=${ms}|${ms}[l${k}]`);
+          labels.push(`[l${k}]`);
+        }
+        t += durs[i];
+      });
+      filters.push(`${labels.join("")}amix=inputs=${labels.length}:normalize=0:duration=longest,apad,atrim=0:${total.toFixed(3)}[vo]`);
+      voicePath = join(dir, "voice-scenes.mp3");
+      args.push("-filter_complex", filters.join(";"), "-map", "[vo]", "-c:a", "libmp3lame", "-b:a", "160k", voicePath);
+      await runFfmpeg(args);
+      const spoken = lineSecs.reduce((a, b) => a + b, 0);
+      voiceMeta = { path: voicePath, originalSec: spoken, adjustedSec: spoken, adjusted: false, coverage: spoken / total, timelineScale: total / plannedSec, perScene: true };
+      console.log(`[job ${jobId}] motion per-scene narration: ${durs.map((d) => d.toFixed(2)).join(", ")}s (total ${total.toFixed(2)}s)`);
+    } else if (voicePath && p.render_style === "motion" && !isUgc) {
       // Motion: stretch or shrink the scenes to the narration; the voice is
       // never re-paced. Scene proportions (the planner's beat weighting) stay.
       const timelineSec = durs.reduce((a, b) => a + b, 0);

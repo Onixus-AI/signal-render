@@ -101,7 +101,7 @@ test("health endpoint and existing rendering gates remain present", () => {
 test("UGC assembles per-scene narration instead of one voiceover track", () => {
   // UGC narration rides on scenes[].audio_url; requiring a global track failed
   // every creator ad before it rendered a frame.
-  assert.match(source, /if \(p\.voiceover_enabled && !p\.voiceover_url && !isUgc\)/);
+  assert.match(source, /if \(p\.voiceover_enabled && !p\.voiceover_url && !isUgc && !perSceneNarration\)/);
   assert.match(source, /if \(isUgc\) \{\n      await report\(\{ progress: 40, current_step: "ugc_assemble" \}\)/);
   assert.match(source, /talking-head clip missing for scene/);
   assert.match(source, /await ugcAssemble\(/);
