@@ -13,6 +13,7 @@
 //   cta       white end card: approved logo, name, tagline, CTA button
 // Light background, navy type, brand colours as accents, fonts chosen per ad.
 import React from "react";
+import { GraphicBody } from "./Graphics.jsx";
 import {
   AbsoluteFill, Img, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig, Easing, delayRender, continueRender,
 } from "remotion";
@@ -206,6 +207,25 @@ function Loop({ scene, fonts, brand, durationF }) {
   );
 }
 
+// A scene with a motion graphic: headline at the top, the animated graphic
+// below. Used for beats with no real picture to show.
+function GraphicScene({ scene, fonts, brand, durationF }) {
+  const size = fitSize(scene.text, 84, 58);
+  const lbl = beatLabel(scene.beat);
+  return (
+    <Enter durationF={durationF}>
+      <div style={{ position: "absolute", left: 80, right: 80, top: 230 }}>
+        {lbl ? <div style={{ fontFamily: fonts.bodyStack, fontSize: 30, fontWeight: 700, letterSpacing: "0.16em", color: brand.primary, textTransform: "uppercase", marginBottom: 20 }}>{lbl}</div> : null}
+        <Words text={scene.text} size={size} font={fonts.headingStack} start={2} />
+      </div>
+      {/* Drawn at 736px wide and scaled 1.25x to fill the frame on a phone. */}
+      <div style={{ position: "absolute", left: 80, top: 600, width: 736, transform: "scale(1.25)", transformOrigin: "top left" }}>
+        <GraphicBody graphic={scene.graphic} fonts={fonts} brand={brand} durationF={durationF} />
+      </div>
+    </Enter>
+  );
+}
+
 function Mechanism({ scene, fonts, brand, durationF }) {
   const frame = useCurrentFrame();
   const size = fitSize(scene.text, 100, 68);
@@ -272,7 +292,8 @@ export const BeatStory = (props) => {
         const common = { scene, fonts: F, brand: B, durationF: dur };
         return (
           <Sequence key={scene.idx ?? i} from={from} durationInFrames={dur}>
-            {kind === "hook" ? <Hook {...common} eyebrow={eyebrow} />
+            {kind !== "cta" && kind !== "hook" && scene.graphic ? <GraphicScene {...common} />
+              : kind === "hook" ? <Hook {...common} eyebrow={eyebrow} />
               : kind === "promise" ? <Promise {...common} />
               : kind === "loop" ? <Loop {...common} />
               : kind === "mechanism" ? <Mechanism {...common} />

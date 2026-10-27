@@ -83,3 +83,20 @@ test("text_only scenes play without their picture", () => {
   assert.equal(p.scenes[0].media, "text");
   assert.equal(p.scenes[0].imageSrc, null);
 });
+
+import { cleanGraphic } from "./motion-render.js";
+
+test("motion graphics: specs are validated and malformed ones dropped", () => {
+  assert.equal(cleanGraphic(null), null);
+  assert.equal(cleanGraphic({ type: "explode", items: [{ label: "a" }, { label: "b" }] }), null);
+  assert.equal(cleanGraphic({ type: "flow", items: [{ label: "only one" }] }), null);
+  const g = cleanGraphic({ type: "strike_list", items: [{ label: "Answer the same questions", struck: true }, { label: "Bookings", icon: "calendar" }, { label: "x", icon: "rocket" }] });
+  assert.equal(g.items.length, 3);
+  assert.equal(g.items[0].struck, true);
+  assert.equal(g.items[1].icon, "calendar");
+  assert.equal(g.items[2].icon, "check");
+  assert.equal(cleanGraphic({ type: "before_after", before: ["Missed calls"], after: [] }), null);
+  assert.ok(cleanGraphic({ type: "before_after", before: ["Missed calls"], after: ["Every lead answered"] }));
+  const p = buildBeatStoryProps({ scenes: [{ idx: 1, end_ms: 1000, graphic: { type: "icon_row", items: [{ label: "Calls", icon: "phone" }, { label: "Bookings", icon: "calendar" }] } }] });
+  assert.equal(p.scenes[0].graphic.type, "icon_row");
+});
