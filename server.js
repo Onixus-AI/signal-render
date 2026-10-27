@@ -650,6 +650,15 @@ function runFfprobe(args) {
   });
 }
 
+// Narration from the TTS provider can be an MP3 with no length header, so
+// ffprobe estimates its duration from the first frame's bitrate (Oct 27: a
+// 2.8s TWIN line measured as ~1.8s, its scene was cut short and the job
+// failed). Decode once to WAV, whose length is exact, and use that file.
+async function exactAudio(src, dest) {
+  await runFfmpeg(["-y", "-i", src, "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", dest]);
+  return dest;
+}
+
 async function probeDuration(file) {
   const out = await runFfprobe(["-v", "error", "-show_entries", "format=duration", "-of", "default=nk=1:nw=1", file]);
   const n = Number(out.trim());
@@ -1197,9 +1206,9 @@ async function processVideoJob(p) {
         if (!s.audio_url) { lineFiles.push(null); continue; }
         const ar = await fetchWithTimeout(s.audio_url);
         if (!ar.ok) throw new Error(`scene ${s.idx} narration download ${ar.status}`);
-        const f = join(dir, `line-${s.idx}.mp3`);
-        await writeFile(f, await boundedBytes(ar, downloadBudget));
-        lineFiles.push(f);
+        const raw = join(dir, `line-${s.idx}.mp3`);
+        await writeFile(raw, await boundedBytes(ar, downloadBudget));
+        lineFiles.push(await exactAudio(raw, join(dir, `line-${s.idx}.wav`)));
       }
       const lineSecs = await Promise.all(lineFiles.map((f) => (f ? probeDuration(f) : 0)));
       durs.splice(0, durs.length, ...motionSceneDurations(lineSecs, durs));
@@ -1335,8 +1344,9 @@ async function processVideoJob(p) {
         if (s.audio_url) {
           const ar = await fetchWithTimeout(s.audio_url);
           if (!ar.ok) throw new Error(`scene ${s.idx} narration download ${ar.status}`);
-          af = join(dir, `vo-${s.idx}.mp3`);
-          await writeFile(af, await boundedBytes(ar,downloadBudget));
+          const raw = join(dir, `vo-${s.idx}.mp3`);
+          await writeFile(raw, await boundedBytes(ar,downloadBudget));
+          af = await exactAudio(raw, join(dir, `vo-${s.idx}.wav`));
         }
         audioFiles.push(af);
       }

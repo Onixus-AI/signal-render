@@ -110,3 +110,9 @@ test("UGC assembles per-scene narration instead of one voiceover track", () => {
   assert.match(source, /isUgc \? s\.voiceover_text \|\| s\.on_screen_text : s\.on_screen_text/);
 });
 
+
+test("narration is decoded to WAV before it is measured (exact length, no MP3 header estimate)", async () => {
+  const source = await readFile(new URL("./server.js", import.meta.url), "utf8");
+  assert.match(source, /af = await exactAudio\(raw, join\(dir, `vo-\$\{s\.idx\}\.wav`\)\);/);
+  assert.match(source, /lineFiles\.push\(await exactAudio\(raw, join\(dir, `line-\$\{s\.idx\}\.wav`\)\)\);/);
+});
