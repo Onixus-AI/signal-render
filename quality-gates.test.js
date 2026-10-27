@@ -69,12 +69,16 @@ test("Premium assembles supplied scene video clips", () => {
 test("Premium fails when required clips are missing and bypasses Standard motion", () => {
   assert.match(source, /Premium motion clips missing for scene/);
   assert.match(source, /if \(!isPremiumMotion && !isUgc && !isMotion\) try/);
-  assert.match(source, /else await stillMotionClip\(s\.file, cp, clipDurs\[i\], width, height, "hold"\)/);
+  // Only end cards and real site captures play as stills; every other scene needs its clip.
+  assert.match(source, /!s\.videoFile && !s\.endcard && !isSiteCapture\(s\)/);
+  assert.match(source, /else await stillMotionClip\(s\.file, cp, clipDurs\[i\], width, height, isSiteCapture\(s\) \? "push_in" : "hold"\)/);
 });
 
 test("Premium clip normalization does not use the still-motion renderer", () => {
   assert.match(source, /async function premiumMotionClip\(videoSrc/);
-  assert.match(source, /-stream_loop.*-i", videoSrc/s);
+  // Short clips ease slower then hold; they are never looped mid-sentence.
+  assert.match(source, /premiumClipStretch\(srcSec, durSec\)/);
+  assert.doesNotMatch(source, /"-stream_loop", "-1", "-i", videoSrc/);
   assert.match(source, /tpad=stop_mode=clone/);
 });
 
@@ -117,9 +121,9 @@ test("narration is decoded to WAV before it is measured (exact length, no MP3 he
   assert.match(source, /lineFiles\.push\(await exactAudio\(raw, join\(dir, `line-\$\{s\.idx\}\.wav`\)\)\);/);
 });
 
-test("cinematic still ads get line-by-line voice too, and captions follow the new scene times", async () => {
+test("cinematic ads (Standard and Premium) get line-by-line voice too, and captions follow the new scene times", async () => {
   const src = await readFile(new URL("./server.js", import.meta.url), "utf8");
-  assert.match(src, /\(p\.render_style === "motion" \|\| \(p\.render_style !== "ugc" && !isPremiumMotion\)\) && !isUgc/);
+  assert.match(src, /const perSceneNarration = p\.render_style !== "ugc" && !isUgc/);
   assert.match(src, /const captionScenes = voiceMeta\?\.perScene \? retimeScenes\(sorted, durs\) : sorted;/);
   assert.match(src, /per_scene_narration: voiceMeta\?\.perScene === true,/);
 });
