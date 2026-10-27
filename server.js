@@ -38,7 +38,7 @@ import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedH
 import { MOTION_LINE_LEAD_SEC, motionSceneDurations, motionTimelineFit, retimeScenes, ugcStretchDurations, voiceoverFitPlan } from "./ugc-timing.js";
 import { buildGraphicAss, graphicStyles, lowerThirdEvents } from "./ugc-graphics.js";
 import { effectcraftCli, renderBrandBeat } from "./effectcraft.js";
-import { buildBeatStoryProps, renderBeatStory, remotionAvailable } from "./motion-render.js";
+import { buildBeatStoryProps, renderBeatStory, remotionAvailable, twinGraphicProps } from "./motion-render.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(__dirname, "templates");
@@ -392,15 +392,30 @@ async function ugcBrollClip(img, audioSrc, outPath, durSec, w, h, idx, videoSrc 
 // Motion-graphic beat (TWIN founder ads): headline and points animate in over
 // the brand's dark backdrop, drawn by libass so the words are exact. Carries
 // the scene's narration like every other UGC clip.
-async function ugcGraphicClip(graphic, colors, audioSrc, outPath, durSec, w, h, idx, dir) {
+async function ugcGraphicClip(graphic, colors, audioSrc, outPath, durSec, w, h, idx, dir, brand = {}) {
   const tempo = await ugcFitTempo(audioSrc, durSec, idx);
-  // EffectCraft first (Onixus mark reveal, designed type motion); the libass
-  // graphic below stays as the fallback so a failed render never drops a beat.
-  const ecOut = join(dir, `graphic-ec-${idx}.mp4`);
-  const ec = await renderBrandBeat(graphic, ecOut, { w, h, durSec, dir, idx, colors });
+  // Remotion first: the same motion graphics as the motion ads (Oct 27).
+  // EffectCraft, then the libass graphic, stay as fallbacks so a failed render
+  // never drops a beat.
+  let ec = { ok: false, error: "remotion unavailable" };
+  let ecOut = join(dir, `graphic-rm-${idx}.mp4`);
+  if (remotionAvailable()) {
+    const t0 = Date.now();
+    try {
+      await renderBeatStory({ props: twinGraphicProps(graphic, { width: w, height: h, durSec, colors, businessName: brand.business_name || "", logoUrl: brand.logo_url || null }), outPath: ecOut });
+      ec = { ok: true, ms: Date.now() - t0, warn: [] };
+      console.log(`[ugc] scene ${idx} graphic rendered by Remotion in ${ec.ms}ms`);
+    } catch (e) {
+      ec = { ok: false, error: `remotion: ${String(e?.message || e).slice(0, 200)}` };
+    }
+  }
+  if (!ec.ok) {
+    ecOut = join(dir, `graphic-ec-${idx}.mp4`);
+    ec = await renderBrandBeat(graphic, ecOut, { w, h, durSec, dir, idx, colors });
+  }
   let ecError = ec.error;
   if (ec.ok) {
-    console.log(`[ugc] scene ${idx} graphic rendered by EffectCraft in ${ec.ms}ms${ec.warn?.length ? ` (warn: ${ec.warn.join("; ")})` : ""}`);
+    if (!ecOut.includes("graphic-rm-")) console.log(`[ugc] scene ${idx} graphic rendered by EffectCraft in ${ec.ms}ms${ec.warn?.length ? ` (warn: ${ec.warn.join("; ")})` : ""}`);
     const frames = Math.max(2, Math.round(durSec * 30));
     const args = ["-y", "-i", ecOut];
     if (audioSrc) args.push("-i", audioSrc);
@@ -1346,7 +1361,7 @@ async function processVideoJob(p) {
         if (s.shot === "talking_head") {
           await ugcTalkingClip(s.videoFile, audioFiles[i], cp, durs[i], width, height, s.idx);
         } else if (s.graphic && !s.videoFile) {
-          await ugcGraphicClip(s.graphic, p.brand?.colors ?? {}, audioFiles[i], cp, durs[i], width, height, s.idx, dir);
+          await ugcGraphicClip(s.graphic, p.brand?.colors ?? {}, audioFiles[i], cp, durs[i], width, height, s.idx, dir, p.brand ?? {});
         } else if (s.site_capture && !s.videoFile) {
           await siteScrollClip(s.file, audioFiles[i], cp, durs[i], width, height, s.idx, dir);
         } else {

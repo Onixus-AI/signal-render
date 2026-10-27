@@ -100,3 +100,16 @@ test("motion graphics: specs are validated and malformed ones dropped", () => {
   const p = buildBeatStoryProps({ scenes: [{ idx: 1, end_ms: 1000, graphic: { type: "icon_row", items: [{ label: "Calls", icon: "phone" }, { label: "Bookings", icon: "calendar" }] } }] });
   assert.equal(p.scenes[0].graphic.type, "icon_row");
 });
+
+import { twinGraphicProps } from "./motion-render.js";
+
+test("TWIN graphic beats become a Remotion clip: points as a flow, a headline alone as a big headline", () => {
+  const a = twinGraphicProps({ headline: "Signal runs your marketing", points: ["Plans content", "Writes posts", "Posts daily"] }, { durSec: 3.2, colors: { primary: "#9254FF", accent: "#00CBE8" }, businessName: "Onixus" });
+  assert.equal(a.clip, true);
+  assert.equal(a.totalMs, 3200);
+  assert.equal(a.scenes[0].graphic.type, "flow");
+  assert.deepEqual(a.scenes[0].graphic.items.map((i) => i.label), ["Plans content", "Writes posts", "Posts daily"]);
+  const b = twinGraphicProps({ headline: "And it posts automatically.", points: [] });
+  assert.equal(b.scenes[0].graphic, null);
+  assert.equal(b.scenes[0].beat, "promise");
+});

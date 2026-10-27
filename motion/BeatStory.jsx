@@ -48,10 +48,10 @@ const stack = (name, fallback) => (name ? `'${name}', ${fallback}` : fallback);
 
 // Value Ladder: hook, promise, value_N, open_loop_N, cta.
 // The Rise: introduction, struggle, rise, proof, mechanism, expectation, cta_two_door.
-function beatKind(beat, idx, count) {
+function beatKind(beat, idx, count, lastIsEndCard = true) {
   const b = String(beat || "");
   // Match beat ids, not substrings: "expectation" contains "cta".
-  if (b.split("+").some((t) => t === "cta" || t.startsWith("cta_")) || idx === count - 1) return "cta";
+  if (b.split("+").some((t) => t === "cta" || t.startsWith("cta_")) || (lastIsEndCard && idx === count - 1)) return "cta";
   if (b.startsWith("hook") || b.startsWith("introduction")) return "hook";
   if (b.startsWith("promise") || b.startsWith("struggle") || b.startsWith("rise") || b.startsWith("expectation")) return "promise";
   if (b.startsWith("open_loop")) return "loop";
@@ -270,7 +270,9 @@ function Cta({ scene, fonts, brand, cta, doors = [], durationF }) {
 }
 
 export const BeatStory = (props) => {
-  const { scenes = [], brand = {}, cta = "", ctaDoors = [], fonts = {}, eyebrow = "" } = props;
+  // clip: true renders one beat for another video (a TWIN graphic): no end
+  // card for the last scene and no progress bar.
+  const { scenes = [], brand = {}, cta = "", ctaDoors = [], fonts = {}, eyebrow = "", clip = false } = props;
   useAdFonts(fonts);
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
@@ -288,7 +290,7 @@ export const BeatStory = (props) => {
       {sorted.map((scene, i) => {
         const from = f(scene.startMs);
         const dur = Math.max(6, f(scene.endMs) - from);
-        const kind = beatKind(scene.beat, i, sorted.length);
+        const kind = beatKind(scene.beat, i, sorted.length, !clip);
         const common = { scene, fonts: F, brand: B, durationF: dur };
         return (
           <Sequence key={scene.idx ?? i} from={from} durationInFrames={dur}>
@@ -303,8 +305,8 @@ export const BeatStory = (props) => {
         );
       })}
       {/* Brand bar and progress on every content scene, not on the end card. */}
-      <div style={{ position: "absolute", top: 0, left: 0, height: 8, width: `${progress}%`, background: `linear-gradient(90deg, ${B.primary}, ${B.accent})`, opacity: frame < lastStart ? 1 : 0 }} />
-      <div style={{ position: "absolute", top: 96, left: 80, display: "flex", alignItems: "center", gap: 18, opacity: frame < lastStart ? 1 : 0 }}>
+      {clip ? null : <div style={{ position: "absolute", top: 0, left: 0, height: 8, width: `${progress}%`, background: `linear-gradient(90deg, ${B.primary}, ${B.accent})`, opacity: frame < lastStart ? 1 : 0 }} />}
+      <div style={{ position: "absolute", top: 96, left: 80, display: "flex", alignItems: "center", gap: 18, opacity: clip || frame < lastStart ? 1 : 0 }}>
         {B.logoUrl ? <Img src={B.logoUrl} style={{ width: 76, height: 76, objectFit: "contain" }} /> : null}
         <span style={{ fontFamily: F.headingStack, fontWeight: 800, fontSize: 34, letterSpacing: "0.22em", color: NAVY }}>{String(B.businessName || "").toUpperCase()}</span>
       </div>

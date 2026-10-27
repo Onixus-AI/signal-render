@@ -98,3 +98,23 @@ export async function renderBeatStory({ props, outPath, onProgress }) {
     onProgress: onProgress ? ({ progress }) => onProgress(progress) : undefined,
   });
 }
+
+/**
+ * A TWIN graphic beat ({ headline, points }) as one Remotion clip in the
+ * motion-ad style: two or more points become a step flow, a headline alone
+ * plays as a big animated headline. Pure; exported for tests.
+ */
+export function twinGraphicProps(graphic, { width = 1080, height = 1920, durSec = 3, colors = {}, businessName = "", logoUrl = null } = {}) {
+  const headline = String(graphic?.headline || "").trim().slice(0, 80);
+  const points = (Array.isArray(graphic?.points) ? graphic.points : []).map((x) => String(x || "").trim().slice(0, 40)).filter(Boolean).slice(0, 4);
+  const flow = points.length >= 2
+    ? { type: "flow", items: points.map((label) => ({ label, icon: "check", struck: false })), before: [], after: [], before_title: "", after_title: "" }
+    : null;
+  const hex = (c) => (/^#[0-9a-f]{6}$/i.test(String(c || "")) ? c : null);
+  return {
+    width, height, totalMs: Math.max(1000, Math.round(durSec * 1000)), clip: true,
+    scenes: [{ idx: 1, startMs: 0, endMs: Math.max(1000, Math.round(durSec * 1000)), text: headline, beat: flow ? "twin_graphic" : "promise", media: "text", imageSrc: null, graphic: flow }],
+    brand: { primary: hex(colors.primary) || "#9254FF", accent: hex(colors.accent) || hex(colors.secondary) || "#00CBE8", businessName, logoUrl, tagline: "", website: "" },
+    cta: "", ctaDoors: [], fonts: { heading: "Inter", body: "Inter" }, eyebrow: "",
+  };
+}
