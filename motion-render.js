@@ -19,8 +19,10 @@ export function buildBeatStoryProps(p, width = 1080, height = 1920) {
     endMs: Number(s.end_ms) || 0,
     text: String(s.on_screen_text || "").trim(),
     beat: String(s.beat || beatByIdx.get(Number(s.idx)) || (i === all.length - 1 ? "cta" : "")),
-    media: s.endcard ? "endcard" : s.media === "site_screenshot" || /-site-\d+\.(jpe?g|png)$/i.test(String(s.image_path || "")) ? "site" : "photo",
-    imageSrc: s.image_url || null,
+    media: s.endcard ? "endcard" : s.media === "text_only" ? "text" : s.media === "site_screenshot" || /-site-\d+\.(jpe?g|png)$/i.test(String(s.image_path || "")) ? "site" : "photo",
+    // A picture that failed Signal's "does it show what the scene says" check
+    // is left out rather than shown: never confuse the viewer.
+    imageSrc: s.media === "text_only" ? null : s.image_url || null,
   }));
   // Signal sends { primary, secondary, accent }; older payloads send a list.
   const rawColors = p?.brand?.colors;
