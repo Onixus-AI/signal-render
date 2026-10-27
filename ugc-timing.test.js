@@ -60,3 +60,13 @@ test("motion: bounds", () => {
   assert.throws(() => motionTimelineFit(30, 90), /longer than a 75s ad/);
   assert.throws(() => motionTimelineFit(30, 0), /invalid/);
 });
+
+import { motionSceneDurations, MOTION_LINE_LEAD_SEC, MOTION_LINE_GAP_SEC } from "./ugc-timing.js";
+
+test("motion per-scene narration: each scene lasts as long as its own line", () => {
+  const d = motionSceneDurations([2.0, 4.5, 0, 1.0], [3, 3, 2, 4]);
+  assert.ok(Math.abs(d[0] - (MOTION_LINE_LEAD_SEC + 2.0 + MOTION_LINE_GAP_SEC)) < 1e-9);
+  assert.ok(Math.abs(d[1] - (MOTION_LINE_LEAD_SEC + 4.5 + MOTION_LINE_GAP_SEC)) < 1e-9);
+  assert.equal(d[2], 2); // no line: planned length
+  assert.equal(d[3], 2.5); // end card: room to read
+});
