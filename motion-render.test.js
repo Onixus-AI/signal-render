@@ -77,3 +77,9 @@ test("Real captures are labelled as the advertiser's work", async () => {
   assert.match(src, /`Built by \$\{String\(name\)\.trim\(\)\}`/);
   assert.match(src, /siteLabel\(scene\.beat, brand\.businessName\)/);
 });
+
+test("text_only scenes play without their picture", () => {
+  const p = buildBeatStoryProps({ scenes: [{ idx: 1, end_ms: 1000, media: "text_only", image_url: "https://x/a.jpg", beat: "rise" }] });
+  assert.equal(p.scenes[0].media, "text");
+  assert.equal(p.scenes[0].imageSrc, null);
+});

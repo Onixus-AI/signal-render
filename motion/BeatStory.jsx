@@ -135,8 +135,8 @@ function Hook({ scene, fonts, brand, eyebrow, durationF }) {
   const size = fitSize(scene.text, 112, 72);
   return (
     <Enter durationF={durationF}>
-      <PhotoCard src={scene.imageSrc} top={250} height={900} durationF={durationF} />
-      <div style={{ position: "absolute", left: 80, top: 1200, right: 80 }}>
+      {scene.imageSrc ? <PhotoCard src={scene.imageSrc} top={250} height={900} durationF={durationF} /> : null}
+      <div style={{ position: "absolute", left: 80, top: scene.imageSrc ? 1200 : 640, right: 80 }}>
         {eyebrow ? <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 26, fontFamily: fonts.bodyStack, fontSize: 30, fontWeight: 700, letterSpacing: "0.16em", color: SLATE, textTransform: "uppercase" }}>
           <span style={{ width: 56, height: 6, background: brand.primary }} />{eyebrow}
         </div> : null}
@@ -179,7 +179,7 @@ function Value({ scene, fonts, brand, durationF }) {
       </div>
       {site
         ? <Phone src={scene.imageSrc} x={(1080 - 600) / 2} y={560} w={600} durationF={durationF} />
-        : <PhotoCard src={scene.imageSrc} top={560} height={1180} durationF={durationF} />}
+        : scene.imageSrc ? <PhotoCard src={scene.imageSrc} top={560} height={1180} durationF={durationF} /> : null}
       {hasTrailingLoop(scene.beat) ? (
         <div style={{ position: "absolute", left: 80, right: 80, bottom: 90, opacity: loopIn, transform: `translateY(${(1 - loopIn) * 30}px)`,
           background: NAVY, color: "#fff", borderRadius: 30, padding: "26px 34px", fontFamily: fonts.bodyStack, fontSize: 38, fontWeight: 700 }}>
