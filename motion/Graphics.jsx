@@ -60,7 +60,7 @@ function StrikeList({ g, fonts, brand, durationF }) {
         return (
           <div key={i} style={{ position: "relative", opacity: inT * (1 - 0.6 * cross), transform: `translateX(${(1 - inT) * -60}px)`,
             display: "flex", alignItems: "center", gap: 28, padding: "30px 36px", borderRadius: 30,
-            background: lit ? `linear-gradient(90deg, ${brand.primary}, ${brand.accent})` : "#fff",
+            background: lit ? brand.primary : "#fff",
             boxShadow: "0 18px 40px rgba(11,27,51,0.10)" }}>
             <div style={{ width: 66, height: 66, borderRadius: 33, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
               background: lit ? "rgba(255,255,255,0.22)" : struck ? "#EEF0F5" : `${brand.primary}1A` }}>
@@ -85,7 +85,7 @@ function Flow({ g, fonts, brand, durationF }) {
   return (
     <div style={{ position: "relative", height: gap * (n - 1) + 140 }}>
       <div style={{ position: "absolute", left: 69, top: 70, width: 8, height: gap * (n - 1), borderRadius: 4, background: "#E3E7EF" }} />
-      <div style={{ position: "absolute", left: 69, top: 70, width: 8, height: gap * (n - 1) * line, borderRadius: 4, background: `linear-gradient(180deg, ${brand.primary}, ${brand.accent})` }} />
+      <div style={{ position: "absolute", left: 69, top: 70, width: 8, height: gap * (n - 1) * line, borderRadius: 4, background: brand.primary }} />
       {steps.map((st, i) => {
         const reach = n === 1 ? 0 : i / (n - 1);
         const on = interpolate(line, [reach - 0.05, reach + 0.02], [0, 1], clamp);
@@ -116,7 +116,7 @@ function BeforeAfter({ g, fonts, brand, durationF }) {
   const aIn = spring({ frame: frame - Math.round(durationF * 0.4), fps, config: { damping: 15, stiffness: 120 } });
   const card = (title, rows, filled, t, icon) => (
     <div style={{ borderRadius: 40, padding: "38px 44px", opacity: t, transform: `translateY(${(1 - t) * 50}px)`,
-      background: filled ? `linear-gradient(140deg, ${brand.primary}, ${brand.accent})` : "#fff", boxShadow: "0 22px 50px rgba(11,27,51,0.12)" }}>
+      background: filled ? brand.primary : "#fff", boxShadow: "0 22px 50px rgba(11,27,51,0.12)" }}>
       <div style={{ fontFamily: fonts.bodyStack, fontWeight: 800, fontSize: 30, letterSpacing: "0.16em", textTransform: "uppercase", color: filled ? "rgba(255,255,255,0.9)" : SLATE, marginBottom: 18 }}>{title}</div>
       {rows.map((r, i) => (
         <div key={i} style={{ display: "flex", alignItems: "center", gap: 20, marginTop: 14 }}>
@@ -145,7 +145,7 @@ function IconRow({ g, fonts, brand }) {
         return (
           <div key={i} style={{ borderRadius: 40, background: "#fff", padding: "44px 30px", display: "flex", flexDirection: "column", alignItems: "center", gap: 24,
             boxShadow: "0 22px 50px rgba(11,27,51,0.10)", transform: `scale(${Math.max(0, s)})` }}>
-            <div style={{ width: 140, height: 140, borderRadius: 70, background: `linear-gradient(140deg, ${brand.primary}, ${brand.accent})`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ width: 140, height: 140, borderRadius: 70, background: brand.primary, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Icon name={it.icon || "check"} size={72} color="#fff" />
             </div>
             <div style={{ fontFamily: fonts.bodyStack, fontWeight: 800, fontSize: 40, color: NAVY, textAlign: "center", lineHeight: 1.1 }}>{label(it.label, 24)}</div>

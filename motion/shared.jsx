@@ -47,3 +47,5 @@ export function fitSize(text, base, min) {
   return Math.max(min, Math.round(base * 0.6));
 }
 
+
+export { paletteColor, textOn } from "./colors.js";
