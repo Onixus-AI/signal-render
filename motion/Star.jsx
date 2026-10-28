@@ -76,7 +76,9 @@ export function Star({ star, action = "point", layout = "value", fonts, brand, d
     bubble = "Easy.";
   } else if (action === "wave") {
     rot = Math.sin(frame / 4) * 9;
-    bubble = "Hi!";
+    // Hello at the start, goodbye on the end card (Omar, 2026-10-28:
+    // "on the last slide onyx say Hi, he should say see you soon").
+    bubble = layout === "cta" ? "See you soon!" : "Hi!";
   } else if (action === "point") {
     rot = interpolate(frame, [4, 14], [0, -10], clamp);
     dx = interpolate(frame, [4, 14], [0, -24], clamp);
