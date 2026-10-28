@@ -264,7 +264,7 @@ export const BeatStory = (props) => {
               : kind === "cta" ? <Cta {...common} cta={cta} doors={ctaDoors} />
               : <Value {...common} />}
             {star ? <Star star={star} action={scene.starAction} fonts={F} brand={B} durationF={dur}
-              layout={kind === "cta" ? "cta" : scene.media === "star" ? "solo" : kind === "hook" ? "hook" : kind === "loop" ? "loop" : kind === "promise" || kind === "mechanism" ? "promise" : scene.graphic ? "graphic" : "value"} /> : null}
+              layout={kind === "cta" ? "cta" : scene.media === "star" ? "solo" : kind !== "hook" && scene.graphic ? "graphic" : kind === "hook" ? "hook" : kind === "loop" ? "loop" : kind === "promise" || kind === "mechanism" ? "promise" : scene.graphic ? "graphic" : "value"} /> : null}
           </Sequence>
         );
       })}
