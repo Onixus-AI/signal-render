@@ -43,6 +43,7 @@ import { randomUUID } from "node:crypto";
 import { fetchCaptionFont, subtitlesFilter } from "./caption-font.js";
 import { isSiteCapture, premiumClipStretch } from "./premium-clip.js";
 import { cutoutStar, cutoutStarClip } from "./star-cutout.js";
+import { WORKER_COMMIT, inspectRender } from "./render-qa.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(__dirname, "templates");
@@ -795,6 +796,8 @@ app.get("/health", async (_req, res) => {
   const [ffmpegOk, chromiumOk, templates] = await Promise.all([hasFfmpeg(), hasChromium(), listTemplates()]);
   res.json({
     ok: true,
+    // Which code is live (Omar, 2026-10-28: a failed deploy left an old worker rendering).
+    worker_commit: WORKER_COMMIT,
     // /render needs Chromium AND the templates directory shipped in the image.
     static_render: Boolean(chromiumOk && RENDER_TOKEN && templates.length > 0),
     templates,
@@ -1592,6 +1595,20 @@ async function processVideoJob(p) {
       thumbPath,
     ]);
 
+    // Self-check: measure the file and build a frame contact sheet for
+    // Signal's vision review. Never fails the render.
+    await report({ progress: 78, current_step: "self_check" });
+    const qaSheetPath = join(dir, "qa-sheet.jpg");
+    const qa = await inspectRender({ ffmpeg: FFMPEG, videoPath: outPath, sheetPath: p.upload_tokens?.qa_sheet?.signed_url ? qaSheetPath : null,
+      durationSec: await probeDuration(outPath).catch(() => 0), hasAudio, dir });
+    if (qa.sheet) {
+      try {
+        await putSigned(p.upload_tokens.qa_sheet.signed_url, await readFile(qaSheetPath), "image/jpeg");
+        qa.sheet_path = p.upload_tokens.qa_sheet.path;
+      } catch (e) { qa.errors.push(`sheet upload: ${String(e?.message || e).slice(0, 120)}`); }
+    }
+    console.log(`[job ${jobId}] self-check: ${qa.warnings.length} warning(s)${qa.warnings.length ? ": " + qa.warnings.join("; ") : ""}; sheet ${qa.sheet_path ? "uploaded" : "none"}`);
+
     await report({ progress: 80, current_step: "uploading" });
 
     // 5. Upload via signed PUTs
@@ -1637,6 +1654,8 @@ async function processVideoJob(p) {
       },
       has_audio: hasAudio,
       worker_meta: {
+        worker_commit: WORKER_COMMIT,
+        qa,
         ffmpeg_version: version,
         has_audio: hasAudio,
         voiceover_included: Boolean(voicePath),
