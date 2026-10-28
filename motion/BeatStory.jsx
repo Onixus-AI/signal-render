@@ -14,6 +14,7 @@
 // Light background, navy type, brand colours as accents, fonts chosen per ad.
 import React from "react";
 import { GraphicBody } from "./Graphics.jsx";
+import { Star } from "./Star.jsx";
 import { FPS, useAdFonts, stack, Words, fitSize } from "./shared.jsx";
 export { FPS };
 import {
@@ -233,7 +234,7 @@ function Cta({ scene, fonts, brand, cta, doors = [], durationF }) {
 export const BeatStory = (props) => {
   // clip: true renders one beat for another video (a TWIN graphic): no end
   // card for the last scene and no progress bar.
-  const { scenes = [], brand = {}, cta = "", ctaDoors = [], fonts = {}, eyebrow = "", clip = false } = props;
+  const { scenes = [], brand = {}, cta = "", ctaDoors = [], fonts = {}, eyebrow = "", clip = false, star = null } = props;
   useAdFonts(fonts);
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
@@ -262,6 +263,8 @@ export const BeatStory = (props) => {
               : kind === "mechanism" ? <Mechanism {...common} />
               : kind === "cta" ? <Cta {...common} cta={cta} doors={ctaDoors} />
               : <Value {...common} />}
+            {star ? <Star star={star} action={scene.starAction} fonts={F} brand={B} durationF={dur}
+              layout={kind === "cta" ? "cta" : kind === "hook" ? "hook" : kind === "loop" ? "loop" : kind === "promise" || kind === "mechanism" ? "promise" : scene.graphic ? "graphic" : "value"} /> : null}
           </Sequence>
         );
       })}

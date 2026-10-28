@@ -41,6 +41,7 @@ export function buildBeatStoryProps(p, width = 1080, height = 1920) {
     // is left out rather than shown: never confuse the viewer.
     imageSrc: s.media === "text_only" ? null : s.image_url || null,
     graphic: cleanGraphic(s.graphic),
+    starAction: String(s.star_action || "").slice(0, 20) || null,
   }));
   // Signal sends { primary, secondary, accent }; older payloads send a list.
   const rawColors = p?.brand?.colors;
@@ -66,6 +67,8 @@ export function buildBeatStoryProps(p, width = 1080, height = 1920) {
       body: String(p?.fonts?.body || "Inter").slice(0, 60),
     },
     eyebrow: String(p?.eyebrow || "").slice(0, 40),
+    // A brand character (Onyx) who stars in every beat.
+    star: p?.star?.image_url ? { name: String(p.star.name || "").slice(0, 30), src: p.star.image_url } : null,
   };
 }
 
