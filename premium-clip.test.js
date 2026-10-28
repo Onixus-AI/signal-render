@@ -24,7 +24,7 @@ test("Google font CSS parsing finds the TrueType file", () => {
   assert.equal(subtitlesFilter("/nonexistent/captions.ass"), "subtitles=/nonexistent/captions.ass");
 });
 
-import { buildCinematicProps } from "./motion-render.js";
+import { buildBeatStoryProps, buildCinematicProps } from "./motion-render.js";
 test("cinematic props: clips by scene, site captures, end card, full lockup", () => {
   const scenes = [
     { idx: 1, start_ms: 0, end_ms: 4000, on_screen_text: "Hook", image_url: "https://x/a.jpg" },
@@ -37,4 +37,16 @@ test("cinematic props: clips by scene, site captures, end card, full lockup", ()
   assert.equal(props.scenes[1].videoSrc, null);
   assert.equal(props.brand.lockupUrl, "https://x/lockup.png");
   assert.equal(props.brand.magenta, "#E625A5");
+});
+
+import { starKeyHex } from "./star-cutout.js";
+test("star backdrop key colour is the corner pixel as ffmpeg hex", () => {
+  assert.equal(starKeyHex(250, 248, 255), "0xFAF8FF");
+  assert.equal(starKeyHex(0, 255, 0), "0x00FF00");
+});
+test("motion props carry the star and each scene's action", () => {
+  const props = buildBeatStoryProps({ star: { name: "Onyx", image_url: "https://x/onyx.png" }, scenes: [{ idx: 1, start_ms: 0, end_ms: 1000, star_action: "enter" }] });
+  assert.deepEqual(props.star, { name: "Onyx", src: "https://x/onyx.png" });
+  assert.equal(props.scenes[0].starAction, "enter");
+  assert.equal(buildBeatStoryProps({ scenes: [] }).star, null);
 });

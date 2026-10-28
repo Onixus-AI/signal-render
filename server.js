@@ -42,6 +42,7 @@ import { buildBeatStoryProps, buildCinematicProps, renderBeatStory, remotionAvai
 import { randomUUID } from "node:crypto";
 import { fetchCaptionFont, subtitlesFilter } from "./caption-font.js";
 import { isSiteCapture, premiumClipStretch } from "./premium-clip.js";
+import { cutoutStar } from "./star-cutout.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(__dirname, "templates");
@@ -70,7 +71,7 @@ const JOB_MEDIA = new Map();
 app.get("/_job-media/:token/:name", (req, res) => {
   const dir = JOB_MEDIA.get(String(req.params.token));
   const name = String(req.params.name);
-  if (!dir || !/^cine-clip-\d{1,2}\.mp4$/.test(name)) return res.status(404).end();
+  if (!dir || !/^(cine-clip-\d{1,2}\.mp4|star\.png)$/.test(name)) return res.status(404).end();
   res.sendFile(join(dir, name));
 });
 
@@ -1433,8 +1434,29 @@ async function processVideoJob(p) {
       await report({ progress: 35, current_step: "motion_render" });
       // Scene times follow the (possibly rescaled) timeline above.
       const props = buildBeatStoryProps({ ...p, scenes: retimeScenes(sorted, durs) }, width, height);
+      // The star character (Onyx): cut out of its studio backdrop and served
+      // to Remotion over loopback, so it sits cleanly on every scene.
+      let starToken = null;
+      if (props.star?.src) {
+        try {
+          const raw = join(dir, "star-src.png");
+          const sr = await fetchWithTimeout(props.star.src);
+          if (!sr.ok) throw new Error(`star download ${sr.status}`);
+          await writeFile(raw, await boundedBytes(sr, downloadBudget));
+          await cutoutStar(raw, join(dir, "star.png"));
+          starToken = randomUUID();
+          JOB_MEDIA.set(starToken, dir);
+          props.star = { ...props.star, src: `http://127.0.0.1:${PORT}/_job-media/${starToken}/star.png`, cutout: true };
+        } catch (e) {
+          console.warn(`[job ${jobId}] star cutout failed (${String(e?.message || e).slice(0, 160)}); using the original picture`);
+        }
+      }
       const motionPath = join(dir, "motion.mp4");
-      await renderBeatStory({ props, outPath: motionPath });
+      try {
+        await renderBeatStory({ props, outPath: motionPath });
+      } finally {
+        if (starToken) JOB_MEDIA.delete(starToken);
+      }
       await muxRemotion(motionPath, durs.reduce((a, b) => a + b, 0));
       renderStyle = "motion_beatstory";
     }
