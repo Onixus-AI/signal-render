@@ -38,7 +38,8 @@ import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedH
 import { MOTION_LINE_LEAD_SEC, motionSceneDurations, motionTimelineFit, retimeScenes, ugcStretchDurations, voiceoverFitPlan } from "./ugc-timing.js";
 import { buildGraphicAss, graphicStyles, lowerThirdEvents } from "./ugc-graphics.js";
 import { effectcraftCli, renderBrandBeat } from "./effectcraft.js";
-import { buildBeatStoryProps, renderBeatStory, remotionAvailable, twinGraphicProps } from "./motion-render.js";
+import { buildBeatStoryProps, buildCinematicProps, renderBeatStory, remotionAvailable, twinGraphicProps } from "./motion-render.js";
+import { randomUUID } from "node:crypto";
 import { fetchCaptionFont, subtitlesFilter } from "./caption-font.js";
 import { isSiteCapture, premiumClipStretch } from "./premium-clip.js";
 
@@ -61,6 +62,17 @@ try {
 
 const app = express();
 app.use(express.json({ limit: "5mb" }));
+
+// Remotion's browser reads this job's normalized clips over loopback while a
+// cinematic ad renders. Each job gets an unguessable token that is removed
+// when its render ends; only premium clip files are served.
+const JOB_MEDIA = new Map();
+app.get("/_job-media/:token/:name", (req, res) => {
+  const dir = JOB_MEDIA.get(String(req.params.token));
+  const name = String(req.params.name);
+  if (!dir || !/^cine-clip-\d{1,2}\.mp4$/.test(name)) return res.status(404).end();
+  res.sendFile(join(dir, name));
+});
 
 const RENDER_TOKEN = process.env.RENDER_TOKEN;
 // Separate, lower-stakes secret for /render-html so callers that only need a
@@ -1400,20 +1412,14 @@ async function processVideoJob(p) {
     // captures. Rendered muted, then voiceover + music are mixed exactly like
     // the other paths. No silent fallback: a still reel is not a motion ad.
     const isMotion = p.render_style === "motion" && !isUgc;
-    if (isMotion) {
-      await report({ progress: 35, current_step: "motion_render" });
-      // Scene times follow the (possibly rescaled) timeline above.
-      const props = buildBeatStoryProps({ ...p, scenes: retimeScenes(sorted, durs) }, width, height);
-      const motionPath = join(dir, "motion.mp4");
-      await renderBeatStory({ props, outPath: motionPath });
-      const total = durs.reduce((a, b) => a + b, 0);
-      const a = ["-y", "-i", motionPath];
+    // A Remotion render is muted; voice and music are mixed in here, and the
+    // video is stream-copied, so only the audio goes through a filter graph.
+    const muxRemotion = async (videoPath, total) => {
+      const a = ["-y", "-i", videoPath];
       const voiceIdx = voicePath ? 1 : null;
       if (voicePath) a.push("-i", voicePath);
       const musicIdx = musicPath ? 1 + (voicePath ? 1 : 0) : null;
       if (musicPath) a.push("-i", musicPath);
-      // Video is stream-copied from the Remotion file, so it is mapped
-      // directly; only the audio goes through a filter graph.
       const fc = [];
       const aout = buildAudioGraph(fc, { voiceIdx, musicIdx, total });
       if (fc.length) a.push("-filter_complex", fc.join(";"));
@@ -1422,6 +1428,14 @@ async function processVideoJob(p) {
       else if (voiceIdx != null) a.push("-map", `${voiceIdx}:a`, "-c:a", "aac", "-b:a", "160k");
       a.push("-c:v", "copy", "-t", total.toFixed(3), outPath);
       await runFfmpeg(a);
+    };
+    if (isMotion) {
+      await report({ progress: 35, current_step: "motion_render" });
+      // Scene times follow the (possibly rescaled) timeline above.
+      const props = buildBeatStoryProps({ ...p, scenes: retimeScenes(sorted, durs) }, width, height);
+      const motionPath = join(dir, "motion.mp4");
+      await renderBeatStory({ props, outPath: motionPath });
+      await muxRemotion(motionPath, durs.reduce((a, b) => a + b, 0));
       renderStyle = "motion_beatstory";
     }
 
@@ -1434,6 +1448,35 @@ async function processVideoJob(p) {
       // the page and its words); they play as a slow push-in on the capture.
       const missing = scenePaths.filter((s) => !s.videoFile && !s.endcard && !isSiteCapture(s));
       if (missing.length) throw new Error(`Premium motion clips missing for scene ${missing.map((s) => s.idx).join(", ")}`);
+      // 9:16 ads are drawn in the Cinematic template (Omar, 2026-10-27: the
+      // site moments were "plain, boring", the font "old and dated"): the
+      // live-action clips full-bleed, real sites in a phone on a moving brand
+      // stage, the full logo lockup on the end card. Any failure falls back
+      // to the plain clip assembly below rather than failing the ad.
+      let drawn = false;
+      if (remotionAvailable() && width === 1080 && height === 1920) {
+        const token = randomUUID();
+        JOB_MEDIA.set(token, dir);
+        try {
+          const urls = [];
+          for (let i = 0; i < scenePaths.length; i++) {
+            if (!scenePaths[i].videoFile) { urls.push(null); continue; }
+            await premiumMotionClip(scenePaths[i].videoFile, join(dir, `cine-clip-${i}.mp4`), durs[i], width, height);
+            urls.push(`http://127.0.0.1:${PORT}/_job-media/${token}/cine-clip-${i}.mp4`);
+          }
+          const props = buildCinematicProps(p, retimeScenes(sorted, durs), urls);
+          const cinePath = join(dir, "cinematic.mp4");
+          await renderBeatStory({ props, outPath: cinePath, composition: "Cinematic" });
+          await muxRemotion(cinePath, durs.reduce((a, b) => a + b, 0));
+          drawn = true;
+          renderStyle = "premium_cinematic";
+        } catch (e) {
+          console.warn(`[job ${jobId}] cinematic template failed (${String(e?.message || e).slice(0, 200)}); plain clip assembly`);
+        } finally {
+          JOB_MEDIA.delete(token);
+        }
+      }
+      if (!drawn) {
       const T = Math.min(0.6, Math.min(...durs) * 0.4);
       const clipDurs = durs.map((d, i) => (i < durs.length - 1 ? d + T : d));
       const premiumTransitionPlan = scenePaths.slice(1).map(() => ({ transition: "fade", duration_sec: T }));
@@ -1447,6 +1490,7 @@ async function processVideoJob(p) {
       }
       await xfadeAssemble(clips, clipDurs, outPath, width, height, voicePath, musicPath, assPath, logoPath, premiumTransitionPlan);
       renderStyle = "premium_motion";
+      }
     }
 
     if (!isPremiumMotion && !isUgc && !isMotion) try {

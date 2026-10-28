@@ -1,6 +1,7 @@
 import React from "react";
 import { Composition } from "remotion";
 import { BeatStory, FPS } from "./BeatStory.jsx";
+import { Cinematic } from "./Cinematic.jsx";
 
 const DEFAULTS = {
   width: 1080, height: 1920, totalMs: 30000,
@@ -9,7 +10,25 @@ const DEFAULTS = {
   cta: "", ctaDoors: [], fonts: { heading: "Inter", body: "Inter" }, eyebrow: "",
 };
 
+const meta = ({ props }) => ({
+  durationInFrames: Math.max(FPS, Math.round((props.totalMs / 1000) * FPS)),
+  width: props.width || 1080,
+  height: props.height || 1920,
+  fps: FPS,
+});
+
 export const Root = () => (
+  <>
+  <Composition
+    id="Cinematic"
+    component={Cinematic}
+    durationInFrames={900}
+    fps={FPS}
+    width={1080}
+    height={1920}
+    defaultProps={DEFAULTS}
+    calculateMetadata={meta}
+  />
   <Composition
     id="BeatStory"
     component={BeatStory}
@@ -25,4 +44,5 @@ export const Root = () => (
       fps: FPS,
     })}
   />
+  </>
 );
