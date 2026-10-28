@@ -42,7 +42,7 @@ import { buildBeatStoryProps, buildCinematicProps, renderBeatStory, remotionAvai
 import { randomUUID } from "node:crypto";
 import { fetchCaptionFont, subtitlesFilter } from "./caption-font.js";
 import { isSiteCapture, premiumClipStretch } from "./premium-clip.js";
-import { cutoutStar } from "./star-cutout.js";
+import { cutoutStar, cutoutStarClip } from "./star-cutout.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(__dirname, "templates");
@@ -71,7 +71,7 @@ const JOB_MEDIA = new Map();
 app.get("/_job-media/:token/:name", (req, res) => {
   const dir = JOB_MEDIA.get(String(req.params.token));
   const name = String(req.params.name);
-  if (!dir || !/^(cine-clip-\d{1,2}\.mp4|star\.png)$/.test(name)) return res.status(404).end();
+  if (!dir || !/^(cine-clip-\d{1,2}\.mp4|star\.png|star-[a-z]{3,10}\.webm)$/.test(name)) return res.status(404).end();
   res.sendFile(join(dir, name));
 });
 
@@ -1447,6 +1447,24 @@ async function processVideoJob(p) {
           starToken = randomUUID();
           JOB_MEDIA.set(starToken, dir);
           props.star = { ...props.star, src: `http://127.0.0.1:${PORT}/_job-media/${starToken}/star.png`, cutout: true };
+          // Animated moves for the actions this ad uses.
+          const used = new Set(props.scenes.map((s) => s.starAction).filter(Boolean));
+          const clips = {};
+          for (const [action, url] of Object.entries(p.star?.clips || {})) {
+            if (!used.has(action) || !/^[a-z]{3,10}$/.test(action)) continue;
+            try {
+              const cr = await fetchWithTimeout(url);
+              if (!cr.ok) throw new Error(`clip ${cr.status}`);
+              const rawClip = join(dir, `star-${action}-src.mp4`);
+              await writeFile(rawClip, await boundedBytes(cr, downloadBudget));
+              await cutoutStarClip(rawClip, join(dir, `star-${action}.webm`));
+              clips[action] = { url: `http://127.0.0.1:${PORT}/_job-media/${starToken}/star-${action}.webm`, sec: await probeDuration(rawClip).catch(() => 4) };
+            } catch (e) {
+              console.warn(`[job ${jobId}] star move ${action} unavailable (${String(e?.message || e).slice(0, 120)}); still picture for it`);
+            }
+          }
+          props.star.clips = clips;
+          console.log(`[job ${jobId}] star moves: ${Object.keys(clips).join(", ") || "none"}`);
         } catch (e) {
           console.warn(`[job ${jobId}] star cutout failed (${String(e?.message || e).slice(0, 160)}); using the original picture`);
         }
