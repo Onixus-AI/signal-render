@@ -50,3 +50,8 @@ test("motion props carry the star and each scene's action", () => {
   assert.equal(props.scenes[0].starAction, "enter");
   assert.equal(buildBeatStoryProps({ scenes: [] }).star, null);
 });
+test("a star_solo scene shows the real character, no picture", () => {
+  const props = buildBeatStoryProps({ star: { name: "Onyx", image_url: "https://x/o.png" }, scenes: [{ idx: 1, start_ms: 0, end_ms: 1000, media: "star_solo", image_url: "https://x/bg.png", star_action: "handle" }, { idx: 2, start_ms: 1000, end_ms: 2000, endcard: true }] });
+  assert.equal(props.scenes[0].media, "star");
+  assert.equal(props.scenes[0].imageSrc, null);
+});
