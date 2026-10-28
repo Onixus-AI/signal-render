@@ -55,6 +55,8 @@ export function buildBeatStoryProps(p, width = 1080, height = 1920) {
       primary: colors[0] || "#9254FF",
       accent: colors[1] || "#00CBE8",
       businessName: p?.brand?.business_name || "",
+      // The brand's own solid colours, rotated through for full-colour beats.
+      palette: (Array.isArray(p?.brand?.palette) ? p.brand.palette : []).filter((c) => /^#[0-9a-f]{6}$/i.test(String(c))).slice(0, 6),
       logoUrl: p?.brand?.logo_url || null,
       tagline: p?.brand?.tagline || "",
       website: p?.brand?.website || "",

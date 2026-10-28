@@ -55,3 +55,15 @@ test("a star_solo scene shows the real character, no picture", () => {
   assert.equal(props.scenes[0].media, "star");
   assert.equal(props.scenes[0].imageSrc, null);
 });
+
+import { paletteColor, textOn } from "./motion/colors.js";
+test("solid brand colours: palette rotation and readable text", () => {
+  const brand = { palette: ["#9254FF", "#00CBE8", "#E625A5", "#00D67A"] };
+  assert.equal(paletteColor(brand, 4), "#9254FF");
+  assert.equal(paletteColor(brand, 1), "#00CBE8");
+  assert.equal(textOn("#9254FF"), "#fff");
+  assert.equal(textOn("#00D67A"), "#0B1B33");
+  assert.equal(paletteColor({ primary: "#111111", accent: "#222222" }, 3), "#222222");
+  const props = buildBeatStoryProps({ brand: { palette: ["#9254FF", "nope", "#00D67A"] }, scenes: [] });
+  assert.deepEqual(props.brand.palette, ["#9254FF", "#00D67A"]);
+});

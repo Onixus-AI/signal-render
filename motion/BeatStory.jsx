@@ -15,7 +15,7 @@
 import React from "react";
 import { GraphicBody } from "./Graphics.jsx";
 import { Star } from "./Star.jsx";
-import { FPS, useAdFonts, stack, Words, fitSize } from "./shared.jsx";
+import { FPS, useAdFonts, stack, Words, fitSize, paletteColor, textOn } from "./shared.jsx";
 export { FPS };
 import {
   AbsoluteFill, Img, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig, Easing,
@@ -119,7 +119,7 @@ function Promise({ scene, fonts, brand, durationF }) {
       <div style={{ position: "absolute", left: 80, right: 80, top: scene.imageSrc ? 900 : 640 }}>
         {beatLabel(scene.beat) ? <div style={{ fontFamily: fonts.bodyStack, fontSize: 30, fontWeight: 700, letterSpacing: "0.16em", color: brand.primary, textTransform: "uppercase", marginBottom: 22 }}>{beatLabel(scene.beat)}</div> : null}
         <Words text={scene.text} size={size} font={fonts.headingStack} start={3} />
-        <div style={{ marginTop: 44, width: 160, height: 10, borderRadius: 5, background: `linear-gradient(90deg, ${brand.primary}, ${brand.accent})` }} />
+        <div style={{ marginTop: 44, width: 160, height: 10, borderRadius: 5, background: brand.primary }} />
       </div>
     </Enter>
   );
@@ -157,13 +157,16 @@ function Loop({ scene, fonts, brand, durationF }) {
   const frame = useCurrentFrame();
   const dots = ".".repeat(1 + (Math.floor(frame / 6) % 3));
   const size = fitSize(scene.text, 108, 72);
+  // One solid brand colour per interrupt, rotating through the palette.
+  const bg = paletteColor(brand, Number(scene.idx) || 0);
+  const ink = textOn(bg);
   return (
     <Enter durationF={durationF}>
-      <AbsoluteFill style={{ background: `linear-gradient(160deg, ${brand.primary} 0%, ${brand.accent} 140%)` }} />
+      <AbsoluteFill style={{ background: bg }} />
       <div style={{ position: "absolute", left: 80, right: 80, top: 640 }}>
-        <Words text={String(scene.text || "").replace(/[.…]+$/, "")} size={size} color="#fff" font={fonts.headingStack} start={2} />
-        <div style={{ marginTop: 40, fontFamily: fonts.headingStack, fontWeight: 800, fontSize: 120, color: "#fff", lineHeight: 0.6 }}>{dots}</div>
-        <div style={{ marginTop: 60, fontFamily: fonts.bodyStack, fontSize: 34, fontWeight: 600, color: "rgba(255,255,255,0.85)", letterSpacing: "0.12em", textTransform: "uppercase" }}>Keep watching</div>
+        <Words text={String(scene.text || "").replace(/[.…]+$/, "")} size={size} color={ink} font={fonts.headingStack} start={2} />
+        <div style={{ marginTop: 40, fontFamily: fonts.headingStack, fontWeight: 800, fontSize: 120, color: ink, lineHeight: 0.6 }}>{dots}</div>
+        <div style={{ marginTop: 60, fontFamily: fonts.bodyStack, fontSize: 34, fontWeight: 600, color: ink, opacity: 0.85, letterSpacing: "0.12em", textTransform: "uppercase" }}>Keep watching</div>
       </div>
     </Enter>
   );
@@ -192,13 +195,15 @@ function Mechanism({ scene, fonts, brand, durationF }) {
   const frame = useCurrentFrame();
   const size = fitSize(scene.text, 100, 68);
   const bar = interpolate(frame, [6, 22], [0, 1], { ...clamp, easing: ease });
+  const bg = paletteColor(brand, (Number(scene.idx) || 0) + 1);
+  const ink = textOn(bg);
   return (
     <Enter durationF={durationF}>
-      <AbsoluteFill style={{ background: `linear-gradient(160deg, ${brand.primary} 0%, ${brand.accent} 140%)` }} />
+      <AbsoluteFill style={{ background: bg }} />
       <div style={{ position: "absolute", left: 80, right: 80, top: 600 }}>
-        <div style={{ fontFamily: fonts.bodyStack, fontSize: 32, fontWeight: 700, color: "rgba(255,255,255,0.9)", letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 30 }}>How it works</div>
-        <Words text={scene.text} size={size} color="#fff" font={fonts.headingStack} start={2} />
-        <div style={{ marginTop: 50, height: 10, width: `${bar * 70}%`, borderRadius: 5, background: "rgba(255,255,255,0.9)" }} />
+        <div style={{ fontFamily: fonts.bodyStack, fontSize: 32, fontWeight: 700, color: ink, opacity: 0.9, letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 30 }}>How it works</div>
+        <Words text={scene.text} size={size} color={ink} font={fonts.headingStack} start={2} />
+        <div style={{ marginTop: 50, height: 10, width: `${bar * 70}%`, borderRadius: 5, background: ink, opacity: 0.9 }} />
       </div>
     </Enter>
   );
@@ -269,7 +274,7 @@ export const BeatStory = (props) => {
         );
       })}
       {/* Brand bar and progress on every content scene, not on the end card. */}
-      {clip ? null : <div style={{ position: "absolute", top: 0, left: 0, height: 8, width: `${progress}%`, background: `linear-gradient(90deg, ${B.primary}, ${B.accent})`, opacity: frame < lastStart ? 1 : 0 }} />}
+      {clip ? null : <div style={{ position: "absolute", top: 0, left: 0, height: 8, width: `${progress}%`, background: B.primary, opacity: frame < lastStart ? 1 : 0 }} />}
       <div style={{ position: "absolute", top: 96, left: 80, display: "flex", alignItems: "center", gap: 18, opacity: clip || frame < lastStart ? 1 : 0 }}>
         {B.logoUrl ? <Img src={B.logoUrl} style={{ width: 76, height: 76, objectFit: "contain" }} /> : null}
         <span style={{ fontFamily: F.headingStack, fontWeight: 800, fontSize: 34, letterSpacing: "0.22em", color: NAVY }}>{String(B.businessName || "").toUpperCase()}</span>
