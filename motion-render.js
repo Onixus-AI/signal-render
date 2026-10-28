@@ -84,13 +84,30 @@ export function remotionAvailable() {
   return Boolean(process.env.CHROMIUM_PATH || process.env.REMOTION_CHROME);
 }
 
+/**
+ * Pure: worker payload + this job's scene times and local clip URLs ->
+ * Cinematic props. Exported for tests. Only 9:16 is laid out.
+ */
+export function buildCinematicProps(p, scenes, clipUrls = []) {
+  const base = buildBeatStoryProps({ ...p, scenes }, 1080, 1920);
+  const raw = [...scenes].sort((a, b) => a.idx - b.idx);
+  const rc = p?.brand?.colors;
+  const list = Array.isArray(rc) ? rc : rc && typeof rc === "object" ? [rc.primary, rc.accent, rc.secondary] : [];
+  const hex = (c) => (/^#[0-9a-f]{6}$/i.test(String(c || "")) ? c : null);
+  return {
+    ...base,
+    scenes: base.scenes.map((s, i) => ({ ...s, videoSrc: clipUrls[i] || null, media: s.media === "photo" && !clipUrls[i] && raw[i]?.endcard ? "endcard" : s.media })),
+    brand: { ...base.brand, lockupUrl: p?.brand?.lockup_url || null, magenta: hex(list[2]) || base.brand.primary, green: hex(list[3]) || base.brand.accent },
+  };
+}
+
 /** Render the muted BeatStory video to outPath. */
-export async function renderBeatStory({ props, outPath, onProgress }) {
+export async function renderBeatStory({ props, outPath, onProgress, composition: id = "BeatStory" }) {
   const { renderMedia, selectComposition } = await import("@remotion/renderer");
   const browserExecutable = process.env.REMOTION_CHROME || process.env.CHROMIUM_PATH || undefined;
   const chromeMode = browserExecutable ? "chrome-for-testing" : "headless-shell";
   const serveUrl = await getServeUrl();
-  const composition = await selectComposition({ serveUrl, id: "BeatStory", inputProps: props, browserExecutable, chromeMode });
+  const composition = await selectComposition({ serveUrl, id, inputProps: props, browserExecutable, chromeMode });
   await renderMedia({
     composition, serveUrl, codec: "h264", outputLocation: outPath,
     inputProps: props, browserExecutable, chromeMode, muted: true,
