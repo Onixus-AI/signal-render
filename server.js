@@ -39,6 +39,8 @@ import { MOTION_LINE_LEAD_SEC, motionSceneDurations, motionTimelineFit, retimeSc
 import { buildGraphicAss, graphicStyles, lowerThirdEvents } from "./ugc-graphics.js";
 import { effectcraftCli, renderBrandBeat } from "./effectcraft.js";
 import { buildBeatStoryProps, renderBeatStory, remotionAvailable, twinGraphicProps } from "./motion-render.js";
+import { fetchCaptionFont, subtitlesFilter } from "./caption-font.js";
+import { isSiteCapture, premiumClipStretch } from "./premium-clip.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(__dirname, "templates");
@@ -185,8 +187,9 @@ function assEscape(t) {
   return String(t).replace(/\r?\n/g, " ").replace(/\{/g, "(").replace(/\}/g, ")").trim();
 }
 // Build a styled ASS caption track from per-scene on_screen_text + timings.
-function buildAss(scenes, width, height) {
-  const fs = Math.max(28, Math.round(height * 0.05));
+function buildAss(scenes, width, height, { font = null } = {}) {
+  const fs = Math.max(28, Math.round(height * (font ? 0.056 : 0.05)));
+  const face = font || "Arial";
   const marginV = Math.round(height * 0.1);
   const header =
     `[Script Info]
@@ -198,7 +201,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cap,Arial,${fs},&H00FFFFFF,&H00000000,&H96000000,1,0,0,0,100,100,0,0,1,4,1,2,80,80,${marginV},1
+Style: Cap,${face},${fs},&H00FFFFFF,&H00141414,&H64000000,1,0,0,0,100,100,0,0,1,${font ? 3 : 4},${font ? 2 : 1},2,80,80,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
@@ -298,10 +301,14 @@ async function stillMotionClip(img, outPath, durSec, w, h, treatment = "push_in"
 // duration only; missing Premium clips are rejected by the Premium assembly
 // branch instead of being replaced with still-image motion.
 async function premiumMotionClip(videoSrc, outPath, durSec, w, h) {
-  const vf = `[0:v]scale=${w}:${h}:force_original_aspect_ratio=increase:flags=bicubic,crop=${w}:${h},fps=30,` +
+  // A clip shorter than its narration is eased slower (up to 1.3x) and then
+  // holds its last frame. Looping it would replay the action mid-sentence.
+  const srcSec = await probeDuration(videoSrc).catch(() => 0);
+  const stretch = premiumClipStretch(srcSec, durSec);
+  const vf = `[0:v]setpts=${stretch.toFixed(4)}*(PTS-STARTPTS),scale=${w}:${h}:force_original_aspect_ratio=increase:flags=bicubic,crop=${w}:${h},fps=30,` +
     `tpad=stop_mode=clone:stop_duration=${durSec.toFixed(3)},trim=0:${durSec.toFixed(3)},setpts=PTS-STARTPTS,setsar=1,format=yuv420p[v]`;
   await runFfmpeg([
-    "-y", "-stream_loop", "-1", "-i", videoSrc,
+    "-y", "-i", videoSrc,
     "-filter_complex", vf, "-map", "[v]", "-an", "-t", durSec.toFixed(3),
     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20", outPath,
   ]);
@@ -440,7 +447,7 @@ async function ugcGraphicClip(graphic, colors, audioSrc, outPath, durSec, w, h, 
   const frames = Math.max(2, Math.round(durSec * 30));
   const args = ["-y", "-f", "lavfi", "-i", `color=c=${SITE_BG}:s=${w}x${h}:r=30:d=${durSec.toFixed(3)}`];
   if (audioSrc) args.push("-i", audioSrc);
-  const v = `[0:v]subtitles=${assPath},setsar=1,format=yuv420p[v]`;
+  const v = `[0:v]${subtitlesFilter(assPath)},setsar=1,format=yuv420p[v]`;
   const a = audioSrc
     ? `[1:a]${ugcAudioChain(tempo, durSec)}[a]`
     : `anullsrc=channel_layout=stereo:sample_rate=48000,atrim=0:${durSec.toFixed(3)},asetpts=N/SR/TB[a]`;
@@ -518,7 +525,7 @@ async function ugcAssemble(clips, outPath, w, h, musicPath, assPath, logoPath, t
     fc.push(`[${logoIdx}:v]scale=${lw}:-1[lg]`, `[${last}][lg]overlay=x=W-w-${m}:y=${m}:format=auto[vlogo]`);
     last = "vlogo";
   }
-  if (assPath) { fc.push(`[${last}]subtitles=${assPath}[vout]`); last = "vout"; }
+  if (assPath) { fc.push(`[${last}]${subtitlesFilter(assPath)}[vout]`); last = "vout"; }
   let aout = "acat";
   if (musicIdx != null) {
     // Creators talk over quiet music: duck deeper than the cinematic default.
@@ -600,7 +607,7 @@ async function xfadeAssemble(clips, durs, outPath, w, h, voicePath, musicPath, a
   }
   let voutIsLabel = last !== "0:v";
   let vout = last;
-  if (assPath) { fc.push(`[${last}]subtitles=${assPath}[vout]`); vout = "vout"; voutIsLabel = true; }
+  if (assPath) { fc.push(`[${last}]${subtitlesFilter(assPath)}[vout]`); vout = "vout"; voutIsLabel = true; }
 
   // Explicit -t instead of -shortest: a voiceover shorter than the video must
   // not truncate it (music/silence covers the tail); longer audio gets cut here.
@@ -1185,7 +1192,7 @@ async function processVideoJob(p) {
     const isUgc = p.render_style === "ugc";
     // Line-by-line voice: motion ads, and cinematic still ads (not Premium
     // AI-motion clips, whose lengths are fixed by the video model).
-    const perSceneNarration = (p.render_style === "motion" || (p.render_style !== "ugc" && !isPremiumMotion)) && !isUgc
+    const perSceneNarration = p.render_style !== "ugc" && !isUgc
       && p.narration === "per_scene" && sorted.some((s) => s.audio_url);
     if (p.voiceover_enabled && !p.voiceover_url && !isUgc && !perSceneNarration) {
       throw new Error("voiceover enabled but voiceover_url is missing");
@@ -1263,7 +1270,7 @@ async function processVideoJob(p) {
       assPath = join(dir, "captions.ass");
       // Line-by-line voice resizes the scenes: captions follow the new times.
       const captionScenes = voiceMeta?.perScene ? retimeScenes(sorted, durs) : sorted;
-      await writeFile(assPath, isUgc ? buildUgcAss(sorted, width, height, p.brand?.colors ?? {}, { captions: wantCaptions }) : buildAss(captionScenes, width, height));
+      await writeFile(assPath, isUgc ? buildUgcAss(sorted, width, height, p.brand?.colors ?? {}, { captions: wantCaptions }) : buildAss(captionScenes, width, height, { font: await fetchCaptionFont(dir, p.fonts?.heading) }));
     }
     let musicPath = null;
     if (p.music_enabled !== false && !p.music_url) {
@@ -1316,7 +1323,7 @@ async function processVideoJob(p) {
         fc.push(`[${logoIdx}:v]scale=${lw}:-1[lg]`, `[${lastV}][lg]overlay=x=W-w-${m}:y=${m}:format=auto[vlogo]`);
         lastV = "vlogo";
       }
-      if (assPath) { fc.push(`[${lastV}]subtitles=${assPath}[vout]`); lastV = "vout"; }
+      if (assPath) { fc.push(`[${lastV}]${subtitlesFilter(assPath)}[vout]`); lastV = "vout"; }
       else { fc.push(`[${lastV}]null[vout]`); lastV = "vout"; }
       const aout = buildAudioGraph(fc, { voiceIdx, musicIdx, total });
       a.push("-filter_complex", fc.join(";"), "-map", "[vout]");
@@ -1423,7 +1430,9 @@ async function processVideoJob(p) {
     // Premium job rather than masquerade as Standard.
     if (isPremiumMotion && !isUgc && !isMotion) {
       await report({ progress: 40, current_step: "premium_motion_assemble" });
-      const missing = scenePaths.filter((s) => !s.videoFile && !s.endcard);
+      // Real site captures are never sent to the video model (it would warp
+      // the page and its words); they play as a slow push-in on the capture.
+      const missing = scenePaths.filter((s) => !s.videoFile && !s.endcard && !isSiteCapture(s));
       if (missing.length) throw new Error(`Premium motion clips missing for scene ${missing.map((s) => s.idx).join(", ")}`);
       const T = Math.min(0.6, Math.min(...durs) * 0.4);
       const clipDurs = durs.map((d, i) => (i < durs.length - 1 ? d + T : d));
@@ -1433,7 +1442,7 @@ async function processVideoJob(p) {
         const s = scenePaths[i];
         const cp = join(dir, `premium-clip-${i}.mp4`);
         if (s.videoFile) await premiumMotionClip(s.videoFile, cp, clipDurs[i], width, height);
-        else await stillMotionClip(s.file, cp, clipDurs[i], width, height, "hold"); // explicit end-card only
+        else await stillMotionClip(s.file, cp, clipDurs[i], width, height, isSiteCapture(s) ? "push_in" : "hold");
         clips.push(cp);
       }
       await xfadeAssemble(clips, clipDurs, outPath, width, height, voicePath, musicPath, assPath, logoPath, premiumTransitionPlan);
