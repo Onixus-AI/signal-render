@@ -6,7 +6,7 @@
 // confetti, a wave. multiply blend drops the light studio backdrop on the
 // light ad canvas.
 import React from "react";
-import { Img, interpolate, spring, useCurrentFrame, useVideoConfig, Easing } from "remotion";
+import { Img, Loop, OffthreadVideo, interpolate, spring, useCurrentFrame, useVideoConfig, Easing } from "remotion";
 
 const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" };
 
@@ -81,6 +81,10 @@ export function Star({ star, action = "point", layout = "value", fonts, brand, d
     rot = interpolate(frame, [4, 14], [0, -10], clamp);
     dx = interpolate(frame, [4, 14], [0, -24], clamp);
   }
+  // A real animated move (video clip of Onyx) carries the motion itself:
+  // keep only the entrance and the gentle placement, never fake wiggles on top.
+  const clip = star.clips?.[action] || null;
+  if (clip) { rot = 0; sx = 1; sy = 1; dx = action === "handle" ? dx : 0; dy = action === "enter" ? (1 - pop) * 700 : 0; }
   const scale = (action === "enter" ? 1 : 0.6 + 0.4 * pop) * out;
   const bubbleIn = spring({ frame: frame - 10, fps, config: { damping: 12, stiffness: 180 } });
   const left = spot.x - spot.size / 2 + dx;
@@ -91,8 +95,16 @@ export function Star({ star, action = "point", layout = "value", fonts, brand, d
       {/* soft floor shadow keeps the character grounded */}
       <div style={{ position: "absolute", left: spot.x - spot.size * 0.3 + dx, top: spot.y + spot.size * 0.46, width: spot.size * 0.6, height: spot.size * 0.08,
         borderRadius: "50%", background: "rgba(11,27,51,0.18)", filter: "blur(10px)", opacity: out * (1 - Math.min(0.5, Math.abs(dy) / 400)) }} />
-      <Img src={star.src} style={{ position: "absolute", left, top, width: spot.size, height: spot.size, objectFit: "contain",
-        mixBlendMode: star.cutout ? "normal" : "multiply", transform: `rotate(${rot}deg) scale(${scale * sx}, ${scale * sy})`, transformOrigin: "50% 90%" }} />
+      {clip ? (
+        <div style={{ position: "absolute", left, top, width: spot.size, height: spot.size, transform: `scale(${scale})`, transformOrigin: "50% 90%" }}>
+          <Loop durationInFrames={Math.max(30, Math.round((clip.sec || 4) * fps))}>
+            <OffthreadVideo src={clip.url} transparent muted style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+          </Loop>
+        </div>
+      ) : (
+        <Img src={star.src} style={{ position: "absolute", left, top, width: spot.size, height: spot.size, objectFit: "contain",
+          mixBlendMode: star.cutout ? "normal" : "multiply", transform: `rotate(${rot}deg) scale(${scale * sx}, ${scale * sy})`, transformOrigin: "50% 90%" }} />
+      )}
       {bubble ? <Bubble x={(layout === "solo" ? spot.x + spot.size * 0.18 : spot.x > 700 ? spot.x - spot.size * 0.75 : spot.x + spot.size * 0.25) + dx} y={spot.y - spot.size * 0.62 + dy} fonts={fonts} brand={brand} t={Math.max(0, bubbleIn) * out}>{bubble}</Bubble> : null}
     </>
   );

@@ -25,3 +25,11 @@ export async function cutoutStar(src, dest, ffmpeg = "ffmpeg") {
   await run(ffmpeg, ["-y", "-v", "error", "-i", src, "-vf", `colorkey=${key}:0.16:0.08,format=rgba`, "-frames:v", "1", dest]);
   return { key, dest };
 }
+
+/** A move clip with its white backdrop keyed to transparency (VP9 + alpha). */
+export async function cutoutStarClip(src, dest, ffmpeg = "ffmpeg") {
+  const key = await cornerColor(src, ffmpeg);
+  await run(ffmpeg, ["-y", "-v", "error", "-i", src, "-an", "-vf", `colorkey=${key}:0.18:0.08,format=yuva420p`,
+    "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-auto-alt-ref", "0", "-b:v", "2M", "-deadline", "realtime", "-cpu-used", "8", dest]);
+  return { key, dest };
+}
