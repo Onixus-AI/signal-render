@@ -18,6 +18,7 @@ const SPOTS = {
   graphic: { x: 900, y: 1700, size: 300 },
   loop: { x: 540, y: 1520, size: 560 },
   cta: { x: 230, y: 1690, size: 300 },
+  solo: { x: 540, y: 1260, size: 760 },     // the star carries the beat alone
 };
 
 function Bubble({ children, x, y, fonts, brand, t }) {
@@ -92,7 +93,7 @@ export function Star({ star, action = "point", layout = "value", fonts, brand, d
         borderRadius: "50%", background: "rgba(11,27,51,0.18)", filter: "blur(10px)", opacity: out * (1 - Math.min(0.5, Math.abs(dy) / 400)) }} />
       <Img src={star.src} style={{ position: "absolute", left, top, width: spot.size, height: spot.size, objectFit: "contain",
         mixBlendMode: star.cutout ? "normal" : "multiply", transform: `rotate(${rot}deg) scale(${scale * sx}, ${scale * sy})`, transformOrigin: "50% 90%" }} />
-      {bubble ? <Bubble x={(spot.x > 700 ? spot.x - spot.size * 0.75 : spot.x + spot.size * 0.25) + dx} y={spot.y - spot.size * 0.62 + dy} fonts={fonts} brand={brand} t={Math.max(0, bubbleIn) * out}>{bubble}</Bubble> : null}
+      {bubble ? <Bubble x={(layout === "solo" ? spot.x + spot.size * 0.18 : spot.x > 700 ? spot.x - spot.size * 0.75 : spot.x + spot.size * 0.25) + dx} y={spot.y - spot.size * 0.62 + dy} fonts={fonts} brand={brand} t={Math.max(0, bubbleIn) * out}>{bubble}</Bubble> : null}
     </>
   );
 }
