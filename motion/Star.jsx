@@ -8,18 +8,9 @@
 import React from "react";
 import { Img, Loop, OffthreadVideo, interpolate, spring, useCurrentFrame, useVideoConfig, Easing } from "remotion";
 
-const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" };
+import { bubbleOrigin, spotFor } from "./star-spots.js";
 
-// Where the star stands in each layout (1080x1920 canvas).
-const SPOTS = {
-  hook: { x: 850, y: 1020, size: 380 },     // over the photo's lower-right corner
-  promise: { x: 860, y: 690, size: 340 },
-  value: { x: 880, y: 1640, size: 320 },
-  graphic: { x: 900, y: 1700, size: 300 },
-  loop: { x: 540, y: 1520, size: 560 },
-  cta: { x: 230, y: 1690, size: 300 },
-  solo: { x: 540, y: 1260, size: 760 },     // the star carries the beat alone
-};
+const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" };
 
 function Bubble({ children, x, y, fonts, brand, t }) {
   return (
@@ -46,7 +37,7 @@ export function Star({ star, action = "point", layout = "value", fonts, brand, d
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   if (!star?.src) return null;
-  const spot = SPOTS[layout] || SPOTS.value;
+  const spot = spotFor(layout);
   const pop = spring({ frame: frame - 2, fps, config: { damping: 11, stiffness: 160 } });
   const out = interpolate(frame, [durationF - 6, durationF], [1, 0], clamp);
   const float = Math.sin(frame / 9) * 14;
@@ -107,7 +98,7 @@ export function Star({ star, action = "point", layout = "value", fonts, brand, d
         <Img src={star.src} style={{ position: "absolute", left, top, width: spot.size, height: spot.size, objectFit: "contain",
           mixBlendMode: star.cutout ? "normal" : "multiply", transform: `rotate(${rot}deg) scale(${scale * sx}, ${scale * sy})`, transformOrigin: "50% 90%" }} />
       )}
-      {bubble ? <Bubble x={(layout === "solo" ? spot.x + spot.size * 0.18 : spot.x > 700 ? spot.x - spot.size * 0.75 : spot.x + spot.size * 0.25) + dx} y={spot.y - spot.size * 0.62 + dy} fonts={fonts} brand={brand} t={Math.max(0, bubbleIn) * out}>{bubble}</Bubble> : null}
+      {bubble ? <Bubble x={bubbleOrigin(layout, spot).x + dx} y={bubbleOrigin(layout, spot).y + dy} fonts={fonts} brand={brand} t={Math.max(0, bubbleIn) * out}>{bubble}</Bubble> : null}
     </>
   );
 }
