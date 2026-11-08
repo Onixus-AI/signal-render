@@ -1,6 +1,7 @@
 import {crawlPublicAds} from './ad-crawler.js';
 import { boundedBytes, videoResourceError } from "./resource-limits.js";
 import { JobJournal } from "./job-journal.js";
+import { GoogleRenderTransport, DurableRenderQueue, RENDER_DEADLINE_MS } from './cloud-render-queue.js';
 import { deliverRenderStatus } from "./status-delivery.js";
 import {AD_CANVASES,adaptationArgs,adaptationUrl} from './ad-adaptation.js';
 // signal-render — video worker with optional persistent acceptance/outbox.
@@ -115,6 +116,16 @@ const STATUS_ENDPOINT = SUPABASE_URL
 const jobs = new Map();
 const journalDirectory = process.env.RENDER_STATE_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH;
 const journal = journalDirectory ? await new JobJournal(join(journalDirectory, "video-jobs")).init() : null;
+const cloudQueueEnabled = process.env.RENDER_QUEUE_MODE === 'google-cloud-tasks';
+if(cloudQueueEnabled && (journal || !HTML_RENDER_TOKEN || !STATUS_ENDPOINT)) {
+  throw Error('Google queue requires a callback URL, authenticated HTML rendering, and no local journal');
+}
+const cloudTransport = cloudQueueEnabled ? new GoogleRenderTransport({
+  project:process.env.GOOGLE_CLOUD_PROJECT,location:process.env.RENDER_QUEUE_LOCATION,
+  queue:process.env.RENDER_QUEUE_NAME,bucket:process.env.RENDER_RECEIPTS_BUCKET,
+  target:process.env.RENDER_TASK_TARGET_URL,token:RENDER_TOKEN,
+}) : null;
+const cloudQueue = cloudTransport ? new DurableRenderQueue(cloudTransport) : null;
 let journalErrors = 0;
 // Terminal jobs are kept an hour so UI retries still dedupe, then dropped.
 const JOB_TTL_MS = 60 * 60 * 1000;
@@ -804,8 +815,9 @@ app.get("/health", async (_req, res) => {
     video_render: Boolean(ffmpegOk && RENDER_TOKEN),
     ad_adaptation: 1,
     callback_protocol: 2,
-    durable_video_jobs: Boolean(journal),
-    durable_callback_outbox: Boolean(journal),
+    durable_video_jobs: Boolean(journal || cloudQueue),
+    durable_callback_outbox: Boolean(journal || cloudQueue),
+    google_cloud_tasks: Boolean(cloudQueue),
     journal_errors: journalErrors,
     max_pending_video_jobs: 50,
     motion_graphics: effectcraftCli() ? "effectcraft" : "libass",
@@ -1071,6 +1083,7 @@ let renderChain = Promise.resolve();
 
 // Adapt an approved master without TTS, diffusion, extra logos, music or captions.
 app.post('/adapt-ad', auth, (req,res)=>{
+ if(cloudQueue)return res.status(503).json({error:'Cloud adaptation dispatch is not enabled; master rendering remains available'});
  const p=req.body;
  try{
   if(!/^[0-9a-f-]{36}$/.test(p?.variant_id)||!/^[0-9a-f-]{36}$/.test(p?.attempt_id)||!AD_CANVASES[p.format]||!SUPABASE_URL)throw new Error('Invalid adaptation request');
@@ -1111,6 +1124,17 @@ app.post("/render-video", auth, async (req, res) => {
   const err = validateVideoPayload(payload);
   if (err) return res.status(400).json({ error: err });
 
+  if(cloudTransport) {
+    if(typeof payload.attempt_token!=='string' || !payload.attempt_token)return res.status(400).json({error:'A fenced attempt_token is required'});
+    try {
+      const result=await cloudTransport.enqueue(payload);
+      return res.status(202).json({ok:true,accepted:true,job_id:payload.job_id,...result});
+    } catch(e) {
+      console.error('Google render enqueue rejected:',e.message);
+      return res.status(503).json({error:'Durable render queue unavailable; job was not acknowledged'});
+    }
+  }
+
   if (journal) {
     let result;
     try { result = await journal.accept(payload); }
@@ -1140,11 +1164,33 @@ app.post("/render-video", auth, async (req, res) => {
     });
 });
 
-async function processVideoJob(p) {
+// Keep the HTTP request open for the whole task so request-billed Cloud Run
+// supplies CPU. Only acknowledge after a persisted terminal callback is sent.
+app.post('/tasks/render-video',auth,async(req,res)=>{
+  if(!cloudQueue)return res.status(404).end();
+  const error=validateVideoPayload(req.body);
+  if(error || !req.body.attempt_token)return res.status(400).json({error:error || 'Missing attempt token'});
+  const deadline=setTimeout(()=>{console.error('Cloud render task deadline exceeded');process.exit(1);},RENDER_DEADLINE_MS);
+  try {
+    const complete=await cloudQueue.execute(req.body,
+      (payload,terminalReporter)=>processVideoJob(payload,{terminalReporter}),
+      callback=>reportStatus(callback.job_id,callback.project_id,callback.patch,callback.attempt_token));
+    return res.status(complete?200:503).json({ok:complete});
+  } catch(e) {
+    console.error('Cloud render task retained for retry:',e.message);
+    return res.status(503).json({error:'Render task must be retried'});
+  } finally {clearTimeout(deadline);}
+});
+
+async function processVideoJob(p,{terminalReporter}={}) {
   const { job_id: jobId, project_id: projectId } = p;
   const report = async (patch) => {
     const terminal = ["rendered","failed"].includes(patch.status);
     const token = p.attempt_token ?? null;
+    if(terminal && terminalReporter) {
+      try {return await terminalReporter({job_id:jobId,project_id:projectId,attempt_token:token,patch});}
+      catch {const error=new Error('Durable terminal receipt unavailable; task retained for retry');error.journalFailure=true;throw error;}
+    }
     if (terminal && journal) {
       try { await journal.terminal(jobId,token,{job_id:jobId,project_id:projectId,attempt_token:token,patch}); }
       catch { journalErrors++; const error=new Error("Terminal journal write failed; retained render for recovery"); error.journalFailure=true; throw error; }
