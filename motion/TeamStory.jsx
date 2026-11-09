@@ -23,7 +23,7 @@ function StoryShot({scene,first,last,opening,brand,cta,fonts,durationF}){
    <Img src={scene.characterSrc} style={{position:'absolute',top:1280,left:690,width:250,height:320,objectFit:'contain',opacity:entrance}}/>
   </>:<>
    <div style={{position:'absolute',top:first?350:300,left:72,right:110,fontFamily:fonts.headingStack,fontSize:Math.min(98,scene.text.length>55?72:90),lineHeight:1.04,fontWeight:750,letterSpacing:'-.035em',textShadow:'0 3px 30px #000',opacity:entrance}}>{scene.text}</div>
-   {!first&&<Img src={scene.characterSrc} style={{position:'absolute',left,top:840,width:420,height:570,objectFit:'contain',transform:`translateY(${(1-entrance)*80}) rotate(${tilt}deg)`,opacity:entrance}}/>}
+   {!first&&scene.characterSrc&&<Img src={scene.characterSrc} style={{position:'absolute',left,top:840,width:420,height:570,objectFit:'contain',transform:`translateY(${(1-entrance)*80}) rotate(${tilt}deg)`,opacity:entrance}}/>}
    {scene.partnerSrc&&<Img src={scene.partnerSrc} style={{position:'absolute',left:left>300?65:590,top:900,width:370,height:500,objectFit:'contain',opacity:entrance}}/>}
    <div style={{position:'absolute',left:72,bottom:330,fontSize:27,color:'#fff',padding:'12px 18px',background:'rgba(0,0,0,.65)'}}>Illustrative business scenario</div>
   </>}

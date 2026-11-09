@@ -32,7 +32,8 @@ export function buildBeatStoryProps(p, width = 1080, height = 1920) {
   const characterAssets = Object.fromEntries(['onyx','onixa','onixelia'].map(name=>[name,`https://veltra-model-1.vercel.app/team/${name}-v1.png`]));
   if(teamStory && !['679cae69-806e-4691-9ef3-241a7ab86501','cf7fd56a-ef84-48f4-8049-36282dec583b'].includes(p.client_id)) throw new Error('Onixus character template is restricted to approved brand identities');
   if(teamStory && (width!==1080 || height!==1920)) throw new Error('Review the vertical master before adapting Onixus character stories');
-  if(teamStory && (p.scenes??[]).some(s=>!characterAssets[s.character] || !['explain','question','handoff','reveal'].includes(s.character_action) || (s.partner && (!characterAssets[s.partner] || s.partner===s.character)))) throw new Error('Onixus story requires approved character and action on each scene');
+  if(teamStory && (p.scenes??[]).some(s=>(s.character && (!characterAssets[s.character] || !['explain','question','handoff','reveal'].includes(s.character_action))) || (!s.character && (s.partner || s.character_action)) || (s.partner && (!characterAssets[s.partner] || s.partner===s.character)))) throw new Error('Onixus story requires approved character and action on each scene');
+  if(teamStory && !characterAssets[[...(p.scenes??[])].sort((a,b)=>a.idx-b.idx).at(-1)?.character]) throw new Error('Onixus ending requires approved character');
   const planScenes = Array.isArray(p?.plan?.scenes) ? p.plan.scenes : [];
   const beatByIdx = new Map(planScenes.map((s) => [Number(s.idx), String(s.beat || "")]));
   const scenes = [...(p?.scenes || [])].sort((a, b) => a.idx - b.idx).map((s, i, all) => ({
