@@ -20,6 +20,7 @@ function StoryShot({scene,first,last,opening,brand,cta,fonts,durationF}){
    <Img src={brand.logoUrl} style={{position:'absolute',top:390,left:340,width:400,height:400,objectFit:'contain',opacity:entrance}}/>
    <div style={{position:'absolute',top:860,left:90,right:90,fontFamily:fonts.headingStack,fontSize:78,lineHeight:1.08,fontWeight:750,textAlign:'center',opacity:entrance}}>{cta||scene.text}</div>
    <div style={{position:'absolute',top:1190,left:90,right:90,fontSize:34,textAlign:'center',color:'#fff'}}>onixus.xyz</div>
+   <Img src={scene.characterSrc} style={{position:'absolute',top:1280,left:690,width:250,height:320,objectFit:'contain',opacity:entrance}}/>
   </>:<>
    <div style={{position:'absolute',top:first?350:300,left:72,right:110,fontFamily:fonts.headingStack,fontSize:Math.min(98,scene.text.length>55?72:90),lineHeight:1.04,fontWeight:750,letterSpacing:'-.035em',textShadow:'0 3px 30px #000',opacity:entrance}}>{scene.text}</div>
    {!first&&<Img src={scene.characterSrc} style={{position:'absolute',left,top:840,width:420,height:570,objectFit:'contain',transform:`translateY(${(1-entrance)*80}) rotate(${tilt}deg)`,opacity:entrance}}/>}
