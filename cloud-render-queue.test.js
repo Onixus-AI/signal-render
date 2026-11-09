@@ -63,14 +63,19 @@ test('receipt persistence failure never sends a completion callback',async()=>{
 });
 test('enqueue uses deterministic task identity and does not acknowledge API failure',async()=>{
   let status=200,task;
-  const t=new GoogleRenderTransport({project:'p',location:'us-central1',queue:'renders',bucket:'b',target:'https://renderer.example',token:'test-only',fetcher:async(url,opts)=>{
+  const t=new GoogleRenderTransport({project:'p',location:'us-central1',queue:'renders',bucket:'b',target:'https://renderer.example',token:'test-only',taskServiceAccount:'worker@p.iam.gserviceaccount.com',fetcher:async(url,opts)=>{
     if(url.startsWith('http://metadata.'))return Response.json({access_token:'runtime-token',expires_in:3600});
     task=JSON.parse(opts.body).task;return new Response('{}',{status});
   }});
   assert.deepEqual(await t.enqueue(payload),{deduped:false});
+  assert.deepEqual(task.httpRequest.oidcToken,{serviceAccountEmail:'worker@p.iam.gserviceaccount.com',audience:'https://renderer.example'});
+  assert.equal(task.httpRequest.headers['X-Render-Token'],'test-only');
+  assert.equal(task.httpRequest.headers.Authorization,undefined);
   assert.equal(task.dispatchDeadline,'1800s');assert.equal(task.name.split('/').at(-1),`render-${attemptId(payload)}`);
   assert.deepEqual(JSON.parse(Buffer.from(task.httpRequest.body,'base64')),payload);
   status=409;assert.deepEqual(await t.enqueue(payload),{deduped:true});
   status=503;await assert.rejects(t.enqueue(payload),/enqueue failed/);
   await assert.rejects(t.enqueue({...payload,large:'x'.repeat(650001)}),/size limit/);
 });
+
+test('private tasks fail closed without a runtime identity',()=>{assert.throws(()=>new GoogleRenderTransport({project:'p',location:'us-central1',queue:'r',bucket:'b',target:'https://renderer.example',token:'test'}),/scoped runtime identity/);});

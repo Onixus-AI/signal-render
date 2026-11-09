@@ -123,7 +123,7 @@ if(cloudQueueEnabled && (journal || !HTML_RENDER_TOKEN || !STATUS_ENDPOINT)) {
 const cloudTransport = cloudQueueEnabled ? new GoogleRenderTransport({
   project:process.env.GOOGLE_CLOUD_PROJECT,location:process.env.RENDER_QUEUE_LOCATION,
   queue:process.env.RENDER_QUEUE_NAME,bucket:process.env.RENDER_RECEIPTS_BUCKET,
-  target:process.env.RENDER_TASK_TARGET_URL,token:RENDER_TOKEN,
+  target:process.env.RENDER_TASK_TARGET_URL,token:RENDER_TOKEN,taskServiceAccount:process.env.RENDER_TASK_SERVICE_ACCOUNT,
 }) : null;
 const cloudQueue = cloudTransport ? new DurableRenderQueue(cloudTransport) : null;
 let journalErrors = 0;
@@ -720,7 +720,9 @@ async function fitVoiceoverToTimeline(dir, voicePath, totalSec) {
 }
 
 function auth(req, res, next) {
-  const h = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const h = req.path === "/tasks/render-video" && cloudQueueEnabled
+    ? req.headers["x-render-token"] || ""
+    : (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   if (!RENDER_TOKEN || h !== RENDER_TOKEN) {
     return res.status(401).json({ error: "unauthorized" });
   }

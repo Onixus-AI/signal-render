@@ -33,8 +33,8 @@ gcloud run deploy "$render_service" --project="$render_project" --region="$rende
   --service-account="$render_account" --no-allow-unauthenticated \
   --cpu=2 --memory=4Gi --min-instances=0 --max-instances=2 --concurrency=8 --timeout=1800 \
   --set-secrets=RENDER_TOKEN=signal-render-token:latest,RENDER_HTML_TOKEN=signal-render-html-token:latest \
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=${render_project},RENDER_QUEUE_MODE=google-cloud-tasks,RENDER_QUEUE_LOCATION=${render_region},RENDER_QUEUE_NAME=${render_queue},RENDER_RECEIPTS_BUCKET=${render_bucket},RENDER_TASK_TARGET_URL=https://pending.invalid,SUPABASE_URL=https://rjwbfkuzgusaoizcmmgf.supabase.co,MAX_HTML_CONCURRENCY=1"
+  --set-env-vars="GOOGLE_CLOUD_PROJECT=${render_project},RENDER_QUEUE_MODE=google-cloud-tasks,RENDER_QUEUE_LOCATION=${render_region},RENDER_QUEUE_NAME=${render_queue},RENDER_TASK_SERVICE_ACCOUNT=${render_account},WORKER_COMMIT=$(git rev-parse HEAD),RENDER_RECEIPTS_BUCKET=${render_bucket},RENDER_TASK_TARGET_URL=https://pending.invalid,SUPABASE_URL=https://rjwbfkuzgusaoizcmmgf.supabase.co,MAX_HTML_CONCURRENCY=1"
 render_url=$(gcloud run services describe "$render_service" --project="$render_project" --region="$render_region" --format='value(status.url)')
 gcloud run services update "$render_service" --project="$render_project" --region="$render_region" --update-env-vars="RENDER_TASK_TARGET_URL=${render_url}"
 printf 'Private renderer deployed: %s\n' "$render_url"
-printf '%s\n' 'Next: verify health with IAM authentication, then approve the app-authenticated ingress and update Signal endpoint/token together. No publishing is enabled by this script.'
+printf '%s\n' 'Next: verify health with IAM authentication, then connect the approved private Workspace bridge and update Signal endpoint/token together. No publishing is enabled by this script.'

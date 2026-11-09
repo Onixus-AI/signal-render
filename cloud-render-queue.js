@@ -8,9 +8,10 @@ export const LEASE_MS = 35 * 60_000;
 export const RENDER_DEADLINE_MS = 29 * 60_000;
 
 export class GoogleRenderTransport {
-  constructor({project,location,queue,bucket,target,token,fetcher=fetch}) {
-    Object.assign(this,{project,location,queue,bucket,target,token,fetcher});
+  constructor({project,location,queue,bucket,target,token,taskServiceAccount,fetcher=fetch}) {
+    Object.assign(this,{project,location,queue,bucket,target,token,taskServiceAccount,fetcher});
     if(!project || !location || !queue || !bucket || !token || !/^https:\/\//.test(target || '')) throw Error('Incomplete Google render queue configuration');
+    if(!taskServiceAccount || !taskServiceAccount.endsWith(`@${project}.iam.gserviceaccount.com`)) throw Error('Private render tasks require the scoped runtime identity');
     this.parent=`projects/${project}/locations/${location}/queues/${queue}`;
   }
   async accessToken() {
@@ -36,7 +37,8 @@ export class GoogleRenderTransport {
         name:`${this.parent}/tasks/render-${attemptId(payload)}`,
         dispatchDeadline:'1800s',
         httpRequest:{httpMethod:'POST',url:`${this.target.replace(/\/$/,'')}/tasks/render-video`,
-          headers:{'Content-Type':'application/json',Authorization:`Bearer ${this.token}`},body:Buffer.from(raw).toString('base64')},
+          oidcToken:{serviceAccountEmail:this.taskServiceAccount,audience:new URL(this.target).origin},
+          headers:{'Content-Type':'application/json','X-Render-Token':this.token},body:Buffer.from(raw).toString('base64')},
       }}),
     });
     if(r.status===409)return {deduped:true};
