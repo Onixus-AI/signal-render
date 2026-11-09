@@ -823,6 +823,7 @@ app.get("/health", async (_req, res) => {
     motion_graphics: effectcraftCli() ? "effectcraft" : "libass",
     // Remotion BeatStory (render_style "motion"); needs Chromium.
     motion_render: chromiumOk && remotionAvailable() ? "remotion_beatstory" : null,
+    onixus_team_motion: chromiumOk && remotionAvailable(),
     html_render: chromiumOk,
     html_render_auth_required: Boolean(HTML_RENDER_TOKEN),
     html_render_max_concurrency: MAX_HTML_CONCURRENCY,

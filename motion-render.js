@@ -28,6 +28,11 @@ export function cleanGraphic(g) {
 
 /** Pure: worker payload -> BeatStory props. Exported for tests. */
 export function buildBeatStoryProps(p, width = 1080, height = 1920) {
+  const teamStory = p?.plan?.creative_template === 'OnixusTeamMotion';
+  const characterAssets = Object.fromEntries(['onyx','onixa','onixelia'].map(name=>[name,`https://veltra-model-1.vercel.app/team/${name}-v1.png`]));
+  if(teamStory && !['679cae69-806e-4691-9ef3-241a7ab86501','cf7fd56a-ef84-48f4-8049-36282dec583b'].includes(p.client_id)) throw new Error('Onixus character template is restricted to approved brand identities');
+  if(teamStory && (width!==1080 || height!==1920)) throw new Error('Review the vertical master before adapting Onixus character stories');
+  if(teamStory && (p.scenes??[]).some(s=>!characterAssets[s.character] || !['explain','question','handoff','reveal'].includes(s.character_action) || (s.partner && (!characterAssets[s.partner] || s.partner===s.character)))) throw new Error('Onixus story requires approved character and action on each scene');
   const planScenes = Array.isArray(p?.plan?.scenes) ? p.plan.scenes : [];
   const beatByIdx = new Map(planScenes.map((s) => [Number(s.idx), String(s.beat || "")]));
   const scenes = [...(p?.scenes || [])].sort((a, b) => a.idx - b.idx).map((s, i, all) => ({
@@ -41,6 +46,7 @@ export function buildBeatStoryProps(p, width = 1080, height = 1920) {
     // is left out rather than shown: never confuse the viewer.
     imageSrc: s.media === "text_only" || s.media === "star_solo" ? null : s.image_url || null,
     graphic: cleanGraphic(s.graphic),
+    ...(teamStory ? {characterSrc:characterAssets[s.character], partnerSrc:s.partner?characterAssets[s.partner]:null, characterAction:s.character_action} : {}),
     starAction: String(s.star_action || "").slice(0, 20) || null,
   }));
   // Signal sends { primary, secondary, accent }; older payloads send a list.
@@ -50,14 +56,14 @@ export function buildBeatStoryProps(p, width = 1080, height = 1920) {
   const colors = colorList.filter((c) => /^#[0-9a-f]{6}$/i.test(String(c)));
   const totalMs = Math.max(1000, ...scenes.map((s) => s.endMs));
   return {
-    width, height, totalMs, scenes,
+    width, height, totalMs, scenes, teamStory,
     brand: {
       primary: colors[0] || "#9254FF",
       accent: colors[1] || "#00CBE8",
       businessName: p?.brand?.business_name || "",
       // The brand's own solid colours, rotated through for full-colour beats.
       palette: (Array.isArray(p?.brand?.palette) ? p.brand.palette : []).filter((c) => /^#[0-9a-f]{6}$/i.test(String(c))).slice(0, 6),
-      logoUrl: p?.brand?.logo_url || null,
+      logoUrl: teamStory ? 'https://www.onixus.xyz/images/brand/onixus-workspace-icon-v2.png' : p?.brand?.logo_url || null,
       tagline: p?.brand?.tagline || "",
       website: p?.brand?.website || "",
     },
