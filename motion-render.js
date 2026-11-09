@@ -47,7 +47,7 @@ export function buildBeatStoryProps(p, width = 1080, height = 1920) {
     // is left out rather than shown: never confuse the viewer.
     imageSrc: s.media === "text_only" || s.media === "star_solo" ? null : s.image_url || null,
     graphic: cleanGraphic(s.graphic),
-    ...(teamStory ? {characterSrc:characterAssets[s.character], partnerSrc:s.partner?characterAssets[s.partner]:null, characterAction:s.character_action} : {}),
+    ...(teamStory ? {characterName:s.character, characterMove:({explain:'point',question:'handle',handoff:'point',reveal:'wave'})[s.character_action], characterSrc:characterAssets[s.character], partnerSrc:s.partner?characterAssets[s.partner]:null, characterAction:s.character_action} : {}),
     starAction: String(s.star_action || "").slice(0, 20) || null,
   }));
   // Signal sends { primary, secondary, accent }; older payloads send a list.

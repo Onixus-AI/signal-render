@@ -1,3 +1,4 @@
+import {verifyTeamClip} from './team-animation.js';
 import {addStorySound} from './story-sound.js';
 import {crawlPublicAds} from './ad-crawler.js';
 import { boundedBytes, videoResourceError } from "./resource-limits.js";
@@ -827,6 +828,7 @@ app.get("/health", async (_req, res) => {
     // Remotion BeatStory (render_style "motion"); needs Chromium.
     motion_render: chromiumOk && remotionAvailable() ? "remotion_beatstory" : null,
     onixus_team_motion: chromiumOk && remotionAvailable(),
+    onixus_team_animation: chromiumOk && remotionAvailable(),
     html_render: chromiumOk,
     html_render_auth_required: Boolean(HTML_RENDER_TOKEN),
     html_render_max_concurrency: MAX_HTML_CONCURRENCY,
@@ -1492,6 +1494,34 @@ async function processVideoJob(p,{terminalReporter}={}) {
       await report({ progress: 35, current_step: "motion_render" });
       // Scene times follow the (possibly rescaled) timeline above.
       const props = buildBeatStoryProps({ ...p, scenes: retimeScenes(sorted, durs) }, width, height);
+      // Team stories require real approved character clips, never a still fallback.
+      let teamToken = null;
+      if (props.teamStory) {
+        teamToken = randomUUID();
+        JOB_MEDIA.set(teamToken, dir);
+        try {
+          const needed = new Map(props.scenes.filter(s => s.characterName).map(s => [s.characterName + ':' + s.characterMove, s]));
+          const clips = {};
+          for (const [key, scene] of needed) {
+            const url = p.team_character_clips?.[scene.characterName]?.[scene.characterMove];
+            if (!url) throw new Error(`Approved animated character clip required: ${key}`);
+            const cr = await fetchWithTimeout(url);
+            if (!cr.ok) throw new Error(`Character clip unavailable: ${key}`);
+            const name = `team-${scene.characterName}-${scene.characterMove}`;
+            const raw = join(dir, name + '.mp4');
+            const clipBytes=await boundedBytes(cr, downloadBudget);
+            verifyTeamClip(scene.characterName,scene.characterMove,clipBytes);
+            await writeFile(raw,clipBytes);
+            const sec = await probeDuration(raw);
+            if (!(sec > .5 && sec < 20)) throw new Error(`Invalid character clip duration: ${key}`);
+            await cutoutStarClip(raw, join(dir, name + '.webm'));
+            clips[key] = {url:`http://127.0.0.1:${PORT}/_job-media/${teamToken}/${name}.webm`, sec};
+          }
+          for (const scene of props.scenes) {
+            if(scene.characterName) scene.characterClip = clips[scene.characterName + ':' + scene.characterMove];
+          }
+        } catch (e) { JOB_MEDIA.delete(teamToken); throw e; }
+      }
       // The star character (Onyx): cut out of its studio backdrop and served
       // to Remotion over loopback, so it sits cleanly on every scene.
       let starToken = null;
@@ -1532,6 +1562,7 @@ async function processVideoJob(p,{terminalReporter}={}) {
         await renderBeatStory({ props, outPath: motionPath });
       } finally {
         if (starToken) JOB_MEDIA.delete(starToken);
+        if (teamToken) JOB_MEDIA.delete(teamToken);
       }
       await muxRemotion(motionPath, durs.reduce((a, b) => a + b, 0));
       renderStyle = "motion_beatstory";

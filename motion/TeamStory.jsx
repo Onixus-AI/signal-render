@@ -1,41 +1,49 @@
 import React from 'react';
-import {AbsoluteFill, Img, Sequence, interpolate, useCurrentFrame, useVideoConfig, Easing} from 'remotion';
+import {AbsoluteFill, Img, Loop, OffthreadVideo, Sequence, interpolate, useCurrentFrame, useVideoConfig, Easing} from 'remotion';
 const clamp={extrapolateLeft:'clamp',extrapolateRight:'clamp'};
+function Character({scene,style}){
+ const {fps}=useVideoConfig();
+ if(!scene.characterName)return null;
+ if(!scene.characterClip?.url)throw new Error('Animated Onyx clip is required; still fallback is disabled');
+ return <div style={style}><Loop durationInFrames={Math.max(1,Math.round(scene.characterClip.sec*fps))}><OffthreadVideo src={scene.characterClip.url} transparent muted style={{width:'100%',height:'100%',objectFit:'contain'}}/></Loop></div>;
+}
+function Headline({text,fonts,frame,last}){
+ return <div style={{fontFamily:fonts.headingStack,fontSize:last?76:text.length>55?66:84,lineHeight:1.06,fontWeight:750,letterSpacing:'-.04em'}}>{text.split(' ').map((word,i)=>{
+ const t=interpolate(frame,[3+i*1.5,12+i*1.5],[0,1],clamp);
+ return <span key={i} style={{display:'inline-block',marginRight:'.23em',opacity:t,transform:`translateY(${(1-t)*26}px)`}}>{word}</span>;
+ })}</div>;
+}
 function StoryShot({scene,first,last,opening,brand,cta,fonts,durationF}){
  const frame=useCurrentFrame();
- const entrance=interpolate(frame,[0,12],[0,1],{...clamp,easing:Easing.out(Easing.cubic)});
+ const entrance=interpolate(frame,[0,16],[0,1],{...clamp,easing:Easing.out(Easing.cubic)});
  const progress=interpolate(frame,[0,durationF],[0,1],clamp);
- const action=scene.characterAction;
  const workflow=scene.beat==='capability';
- const left=action==='handoff'?interpolate(progress,[0,.65],[80,590],clamp):action==='question'?60:580;
- const tilt=action==='question'?Math.sin(frame/18)*5:0;
  const image=last?opening:scene.imageSrc;
+ const hasCharacter=!!scene.characterName;
  return <AbsoluteFill style={{background:'#101416',color:'#fff',fontFamily:fonts.bodyStack}}>
-  {image&&<AbsoluteFill style={{overflow:'hidden',opacity:last ? .23 : 1}}><Img src={image} style={{width:'100%',height:'100%',objectFit:'cover',transform:`scale(${1.02+progress*.045})`}}/></AbsoluteFill>}
-  <AbsoluteFill style={{background:last?'transparent':'linear-gradient(180deg,rgba(0,0,0,.55),transparent 48%,rgba(0,0,0,.78))'}}/>
-  <div style={{position:'absolute',top:150,left:72,right:72,display:'flex',alignItems:'center',gap:20}}>
-   <Img src={brand.logoUrl} style={{width:88,height:88,objectFit:'contain'}}/>
+  <div style={{position:'absolute',left:72,right:72,top:130,display:'flex',alignItems:'center',gap:20}}>
+   <Img src={brand.logoUrl} style={{width:82,height:82,objectFit:'contain'}}/>
    <span style={{fontFamily:fonts.headingStack,fontSize:32,fontWeight:650}}>Onixus</span>
+   <span style={{marginLeft:'auto',fontSize:22,letterSpacing:'.16em',textTransform:'uppercase',color:brand.accent}}>{last?'Your next step':workflow?'Owner in control':'Work. Connected.'}</span>
   </div>
-  {last?<>
-   <Img src={brand.logoUrl} style={{position:'absolute',top:390,left:340,width:400,height:400,objectFit:'contain',opacity:entrance}}/>
-   <div style={{position:'absolute',top:860,left:90,right:90,fontFamily:fonts.headingStack,fontSize:78,lineHeight:1.08,fontWeight:750,textAlign:'center',opacity:entrance}}>{cta||scene.text}</div>
-   <div style={{position:'absolute',top:1190,left:90,right:90,fontSize:34,textAlign:'center',color:'#fff'}}>onixus.xyz</div>
-   <Img src={scene.characterSrc} style={{position:'absolute',top:1280,left:690,width:250,height:320,objectFit:'contain',opacity:entrance}}/>
-  </>:<>
-   <div style={{position:'absolute',top:first?350:300,left:72,right:110,fontFamily:fonts.headingStack,fontSize:Math.min(98,scene.text.length>55?72:90),lineHeight:1.04,fontWeight:750,letterSpacing:'-.035em',textShadow:'0 3px 30px #000',opacity:entrance}}>{scene.text}</div>
-   {workflow&&<div style={{position:'absolute',top:650,left:72,width:500}}>{['Inquiry','Owner review','Follow-up'].map((label,i)=>{
-    const arrive=interpolate(progress,[i*.18,i*.18+.16],[0,1],clamp);
-    return <div key={label} style={{opacity:arrive,transform:`translateX(${(1-arrive)*-65}px)`,marginBottom:28}}>
-      <div style={{border:`2px solid ${i===1?brand.accent:'rgba(255,255,255,.35)'}`,borderRadius:24,padding:'26px 30px',fontSize:43,fontWeight:650,background:i===1?'rgba(72,218,231,.14)':'rgba(15,22,26,.9)'}}><span style={{color:brand.accent,marginRight:20,fontSize:30}}>0{i+1}</span>{label}</div>
-      {i<2&&<div style={{fontSize:38,paddingLeft:60,color:brand.accent,marginTop:14}}>↓</div>}
-    </div>;
-   })}</div>}
-   {!first&&scene.characterSrc&&<Img src={scene.characterSrc} style={{position:'absolute',left,top:workflow?1050:840,width:420,height:570,objectFit:'contain',transform:`translateY(${(1-entrance)*80}) rotate(${tilt}deg)`,opacity:entrance}}/>}
-   {scene.partnerSrc&&<Img src={scene.partnerSrc} style={{position:'absolute',left:left>300?65:590,top:900,width:370,height:500,objectFit:'contain',opacity:entrance}}/>}
-   <div style={{position:'absolute',left:72,bottom:330,fontSize:27,color:'#fff',padding:'12px 18px',background:'rgba(0,0,0,.65)'}}>Illustrative business scenario</div>
+  <div style={{position:'absolute',top:last?345:300,left:72,right:92,zIndex:3}}><Headline text={last?(cta||scene.text):scene.text} fonts={fonts} frame={frame} last={last}/></div>
+  {!last&&!workflow&&image&&<div style={{position:'absolute',left:72,top:600,width:936,height:first?820:720,borderRadius:36,overflow:'hidden',border:'1px solid rgba(255,255,255,.2)',transform:`translateY(${(1-entrance)*75}px)`,opacity:entrance}}>
+   <Img src={image} style={{width:'100%',height:'100%',objectFit:'cover',transform:`scale(${1.02+progress*.055})`}}/>
+   <div style={{position:'absolute',inset:0,background:'linear-gradient(180deg,transparent 55%,rgba(16,20,22,.8))'}}/>
+   <div style={{position:'absolute',top:28,left:28,width:50,height:5,background:brand.accent}}/>
+  </div>}
+  {workflow&&<div style={{position:'absolute',top:640,left:72,width:535,zIndex:2}}>{['Inquiry','Owner review','Follow-up'].map((label,i)=>{
+   const t=interpolate(progress,[i*.18,i*.18+.16],[0,1],clamp);
+   return <div key={label} style={{opacity:t,transform:`translateX(${(1-t)*-70}px)`,marginBottom:30}}><div style={{border:`2px solid ${i===1?brand.accent:'rgba(255,255,255,.25)'}`,borderRadius:22,padding:'30px 28px',fontSize:39,fontWeight:650,background:i===1?'rgba(0,203,232,.12)':'#1b2329'}}><span style={{color:brand.accent,marginRight:18,fontSize:27}}>0{i+1}</span>{label}</div>{i<2&&<div style={{height:32,borderLeft:`2px solid ${brand.accent}`,marginLeft:40,marginTop:16}}/>}</div>;
+  })}</div>}
+  {hasCharacter&&<Character scene={scene} style={{position:'absolute',left:last?300:workflow?590:575,top:last?830:workflow?905:960,width:last?480:420,height:last?640:560,zIndex:4,opacity:entrance,transform:`translateY(${(1-entrance)*35}px)`}}/>}
+  {last&&<>
+   <Img src={brand.logoUrl} style={{position:'absolute',top:660,left:72,width:126,height:126,objectFit:'contain',opacity:entrance}}/>
+   <div style={{position:'absolute',top:700,left:225,fontSize:38,fontWeight:650,opacity:entrance}}>onixus.xyz</div>
+   <div style={{position:'absolute',top:1530,left:72,right:72,color:brand.accent,fontSize:31,fontWeight:600}}>Build. Grow. Automate.</div>
   </>}
-  <div style={{position:'absolute',left:72,right:72,bottom:290,height:3,background:'rgba(255,255,255,.2)'}}><div style={{height:'100%',width:`${progress*100}%`,background:brand.accent}}/></div>
+  {!last&&<div style={{position:'absolute',left:72,bottom:345,fontSize:25,color:'#c5d0d5'}}>Illustrative business scenario</div>}
+  <div style={{position:'absolute',left:72,right:72,bottom:300,display:'flex',gap:10}}>{Array.from({length:8},(_,i)=><div key={i} style={{height:4,flex:1,background:i<scene.idx?brand.accent:'rgba(255,255,255,.15)'}}>{i===scene.idx&&<div style={{height:'100%',width:`${progress*100}%`,background:brand.accent}}/>}</div>)}</div>
  </AbsoluteFill>;
 }
 export function TeamStory({scenes,brand,cta,fonts}){

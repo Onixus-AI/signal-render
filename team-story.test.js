@@ -7,3 +7,10 @@ test('unknown cast, foreign tenant and unreviewed aspect ratio fail closed',()=>
 test('ordinary motion ads keep their own branding without Onixus cast',()=>{const r=buildBeatStoryProps({...p,client_id:'other',plan:{}});assert.equal(r.teamStory,false);assert.equal(r.brand.logoUrl,p.brand.logo_url);assert.equal(r.scenes[0].characterSrc,undefined);});
 
 test('human opening can omit cast but branded ending cannot',()=>{const human={idx:0,start_ms:0,end_ms:1000,image_url:'https://example.com/work.png'};const ending={...p.scenes[0],idx:1,start_ms:1000,end_ms:4000};assert.equal(buildBeatStoryProps({...p,scenes:[human,ending]}).scenes[0].characterSrc,undefined);assert.throws(()=>buildBeatStoryProps({...p,scenes:[ending,{...human,idx:2}]}));});
+
+test('team story maps expressive actions to actual clip moves',()=>{
+ for(const [action,move] of Object.entries({question:'handle',explain:'point',handoff:'point',reveal:'wave'})){
+  const r=buildBeatStoryProps({...p,scenes:[{...p.scenes[0],character_action:action}]});
+  assert.equal(r.scenes[0].characterName,'onyx');assert.equal(r.scenes[0].characterMove,move);
+ }
+});
