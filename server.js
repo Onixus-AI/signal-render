@@ -1,3 +1,4 @@
+import {addStorySound} from './story-sound.js';
 import {crawlPublicAds} from './ad-crawler.js';
 import { boundedBytes, videoResourceError } from "./resource-limits.js";
 import { JobJournal } from "./job-journal.js";
@@ -1338,6 +1339,7 @@ async function processVideoJob(p,{terminalReporter}={}) {
       await writeFile(assPath, isUgc ? buildUgcAss(sorted, width, height, p.brand?.colors ?? {}, { captions: wantCaptions }) : buildAss(captionScenes, width, height, { font: await fetchCaptionFont(dir, p.fonts?.heading) }));
     }
     let musicPath = null;
+    let storySfxIncluded = false;
     if (p.music_enabled !== false && !p.music_url) {
       throw new Error("music enabled but music_url is missing");
     }
@@ -1474,7 +1476,11 @@ async function processVideoJob(p,{terminalReporter}={}) {
       const musicIdx = musicPath ? 1 + (voicePath ? 1 : 0) : null;
       if (musicPath) a.push("-i", musicPath);
       const fc = [];
-      const aout = buildAudioGraph(fc, { voiceIdx, musicIdx, total });
+      let aout = buildAudioGraph(fc, { voiceIdx, musicIdx, total });
+      if(p.plan?.creative_template === 'OnixusTeamMotion' && (aout || voiceIdx != null)) {
+        if(!aout){fc.push(`[${voiceIdx}:a]anull[storybase]`);aout='storybase';}
+        aout=addStorySound(fc,aout,sorted,total);storySfxIncluded=true;
+      }
       if (fc.length) a.push("-filter_complex", fc.join(";"));
       a.push("-map", "0:v");
       if (aout) a.push("-map", `[${aout}]`, "-c:a", "aac", "-b:a", "160k");
@@ -1709,6 +1715,7 @@ async function processVideoJob(p,{terminalReporter}={}) {
         has_audio: hasAudio,
         voiceover_included: Boolean(voicePath),
         music_included: Boolean(musicPath),
+        story_sfx_included: storySfxIncluded,
         voiceover_original_sec: voiceMeta?.originalSec ?? null,
         voiceover_adjusted_sec: voiceMeta?.adjustedSec ?? null,
         voiceover_timing_adjusted: voiceMeta?.adjusted ?? false,
