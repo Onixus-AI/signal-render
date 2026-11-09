@@ -6,6 +6,7 @@ function StoryShot({scene,first,last,opening,brand,cta,fonts,durationF}){
  const entrance=interpolate(frame,[0,12],[0,1],{...clamp,easing:Easing.out(Easing.cubic)});
  const progress=interpolate(frame,[0,durationF],[0,1],clamp);
  const action=scene.characterAction;
+ const workflow=scene.beat==='capability';
  const left=action==='handoff'?interpolate(progress,[0,.65],[80,590],clamp):action==='question'?60:580;
  const tilt=action==='question'?Math.sin(frame/18)*5:0;
  const image=last?opening:scene.imageSrc;
@@ -23,7 +24,14 @@ function StoryShot({scene,first,last,opening,brand,cta,fonts,durationF}){
    <Img src={scene.characterSrc} style={{position:'absolute',top:1280,left:690,width:250,height:320,objectFit:'contain',opacity:entrance}}/>
   </>:<>
    <div style={{position:'absolute',top:first?350:300,left:72,right:110,fontFamily:fonts.headingStack,fontSize:Math.min(98,scene.text.length>55?72:90),lineHeight:1.04,fontWeight:750,letterSpacing:'-.035em',textShadow:'0 3px 30px #000',opacity:entrance}}>{scene.text}</div>
-   {!first&&scene.characterSrc&&<Img src={scene.characterSrc} style={{position:'absolute',left,top:840,width:420,height:570,objectFit:'contain',transform:`translateY(${(1-entrance)*80}) rotate(${tilt}deg)`,opacity:entrance}}/>}
+   {workflow&&<div style={{position:'absolute',top:650,left:72,width:500}}>{['Inquiry','Owner review','Follow-up'].map((label,i)=>{
+    const arrive=interpolate(progress,[i*.18,i*.18+.16],[0,1],clamp);
+    return <div key={label} style={{opacity:arrive,transform:`translateX(${(1-arrive)*-65}px)`,marginBottom:28}}>
+      <div style={{border:`2px solid ${i===1?brand.accent:'rgba(255,255,255,.35)'}`,borderRadius:24,padding:'26px 30px',fontSize:43,fontWeight:650,background:i===1?'rgba(72,218,231,.14)':'rgba(15,22,26,.9)'}}><span style={{color:brand.accent,marginRight:20,fontSize:30}}>0{i+1}</span>{label}</div>
+      {i<2&&<div style={{fontSize:38,paddingLeft:60,color:brand.accent,marginTop:14}}>↓</div>}
+    </div>;
+   })}</div>}
+   {!first&&scene.characterSrc&&<Img src={scene.characterSrc} style={{position:'absolute',left,top:workflow?1050:840,width:420,height:570,objectFit:'contain',transform:`translateY(${(1-entrance)*80}) rotate(${tilt}deg)`,opacity:entrance}}/>}
    {scene.partnerSrc&&<Img src={scene.partnerSrc} style={{position:'absolute',left:left>300?65:590,top:900,width:370,height:500,objectFit:'contain',opacity:entrance}}/>}
    <div style={{position:'absolute',left:72,bottom:330,fontSize:27,color:'#fff',padding:'12px 18px',background:'rgba(0,0,0,.65)'}}>Illustrative business scenario</div>
   </>}

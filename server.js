@@ -37,7 +37,7 @@ import {
   transitionDuration,
 } from "./motion-director.js";
 import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedHosts, pickFocusOffset, stripWindow } from "./site-capture.js";
-import { MOTION_LINE_LEAD_SEC, motionSceneDurations, motionTimelineFit, retimeScenes, ugcStretchDurations, voiceoverFitPlan } from "./ugc-timing.js";
+import { MOTION_LINE_LEAD_SEC, fixedStoryDurations, motionSceneDurations, motionTimelineFit, retimeScenes, ugcStretchDurations, voiceoverFitPlan } from "./ugc-timing.js";
 import { buildGraphicAss, graphicStyles, lowerThirdEvents } from "./ugc-graphics.js";
 import { effectcraftCli, renderBrandBeat } from "./effectcraft.js";
 import { buildBeatStoryProps, buildCinematicProps, renderBeatStory, remotionAvailable, twinGraphicProps } from "./motion-render.js";
@@ -1287,7 +1287,7 @@ async function processVideoJob(p,{terminalReporter}={}) {
         lineFiles.push(await exactAudio(raw, join(dir, `line-${s.idx}.wav`)));
       }
       const lineSecs = await Promise.all(lineFiles.map((f) => (f ? probeDuration(f) : 0)));
-      durs.splice(0, durs.length, ...motionSceneDurations(lineSecs, durs));
+      durs.splice(0, durs.length, ...(p.plan?.creative_template === 'OnixusTeamMotion' ? fixedStoryDurations(lineSecs, durs) : motionSceneDurations(lineSecs, durs)));
       const total = durs.reduce((a, b) => a + b, 0);
       if (total > 75) throw new Error(`narration runs ${total.toFixed(1)}s, longer than a 75s ad; shorten the script`);
       const args = ["-y"];

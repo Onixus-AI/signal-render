@@ -70,3 +70,15 @@ test("motion per-scene narration: each scene lasts as long as its own line", () 
   assert.equal(d[2], 2); // no line: planned length
   assert.equal(d[3], 2.5); // end card: room to read
 });
+
+import {fixedStoryDurations} from './ugc-timing.js';
+test('reviewed story stays thirty seconds without speeding up or cutting narration',()=>{
+ const lines=[1.7,2.4,3.1,2.5,2.1,2.6,3.2,3.0];
+ const d=fixedStoryDurations(lines,[3.5,3.5,3,3.5,4,4,3.5,5]);
+ assert.ok(Math.abs(d.reduce((a,b)=>a+b,0)-30)<.0001);
+ d.forEach((sec,i)=>assert.ok(sec>=lines[i]+.12));
+ assert.ok(d.at(-1)>=lines.at(-1)+1.2);
+});
+test('overlong narration fails rather than silently changing the slot',()=>{
+ assert.throws(()=>fixedStoryDurations([15,16],[15,15]),/does not fit/);
+});
