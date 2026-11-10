@@ -1,3 +1,4 @@
+import {jobMediaHandler} from './job-media.js';
 import {verifyTeamClip} from './team-animation.js';
 import {addStorySound} from './story-sound.js';
 import {crawlPublicAds} from './ad-crawler.js';
@@ -72,12 +73,7 @@ app.use(express.json({ limit: "5mb" }));
 // cinematic ad renders. Each job gets an unguessable token that is removed
 // when its render ends; only premium clip files are served.
 const JOB_MEDIA = new Map();
-app.get("/_job-media/:token/:name", (req, res) => {
-  const dir = JOB_MEDIA.get(String(req.params.token));
-  const name = String(req.params.name);
-  if (!dir || !/^(cine-clip-\d{1,2}\.mp4|star\.png|star-[a-z]{3,10}\.webm)$/.test(name)) return res.status(404).end();
-  res.sendFile(join(dir, name));
-});
+app.get("/_job-media/:token/:name", jobMediaHandler(JOB_MEDIA));
 
 const RENDER_TOKEN = process.env.RENDER_TOKEN;
 // Separate, lower-stakes secret for /render-html so callers that only need a
