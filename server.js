@@ -39,7 +39,7 @@ import {
   transitionDuration,
 } from "./motion-director.js";
 import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedHosts, pickFocusOffset, stripWindow } from "./site-capture.js";
-import { MOTION_LINE_LEAD_SEC, fixedStoryDurations, motionSceneDurations, motionTimelineFit, retimeScenes, ugcStretchDurations, voiceoverFitPlan } from "./ugc-timing.js";
+import { MOTION_LINE_LEAD_SEC, fixedStoryDurations, continuousCommercialFit, motionSceneDurations, motionTimelineFit, retimeScenes, ugcStretchDurations, voiceoverFitPlan } from "./ugc-timing.js";
 import { buildGraphicAss, graphicStyles, lowerThirdEvents } from "./ugc-graphics.js";
 import { effectcraftCli, renderBrandBeat } from "./effectcraft.js";
 import { buildBeatStoryProps, buildCinematicProps, renderBeatStory, remotionAvailable, twinGraphicProps } from "./motion-render.js";
@@ -1314,7 +1314,8 @@ async function processVideoJob(p,{terminalReporter}={}) {
       // never re-paced. Scene proportions (the planner's beat weighting) stay.
       const timelineSec = durs.reduce((a, b) => a + b, 0);
       const voiceSec = await probeDuration(voicePath);
-      const fit = motionTimelineFit(timelineSec, voiceSec);
+      const fit = p.narration === "continuous" && p.plan?.creative_template === "OnixusTeamMotion"
+        ? continuousCommercialFit(timelineSec, voiceSec) : motionTimelineFit(timelineSec, voiceSec);
       if (fit.scale !== 1) durs.splice(0, durs.length, ...durs.map((d) => d * fit.scale));
       voiceMeta = { path: voicePath, originalSec: voiceSec, adjustedSec: voiceSec, adjusted: false, coverage: voiceSec / timelineSec, timelineScale: fit.scale };
       console.log(`[job ${jobId}] motion timeline ${timelineSec.toFixed(2)}s -> ${durs.reduce((a, b) => a + b, 0).toFixed(2)}s for ${voiceSec.toFixed(2)}s narration`);

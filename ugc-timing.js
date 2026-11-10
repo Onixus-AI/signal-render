@@ -100,3 +100,10 @@ export function fixedStoryDurations(lineSecs, plannedSecs) {
   if (spare < -.001) throw new Error('Narration does not fit the approved story duration; shorten the script');
   return minimum.map((v,i)=>v+Math.max(0,spare)*plannedSecs[i]/total);
 }
+
+/** A reviewed commercial keeps its visual/CTA holds; never accelerate a voice to fit. */
+export function continuousCommercialFit(timelineSec, voiceSec) {
+ if (!Number.isFinite(timelineSec) || timelineSec <= 0 || !Number.isFinite(voiceSec) || voiceSec <= 0) throw new Error('voiceover duration is invalid');
+ if (voiceSec > timelineSec) throw new Error('Continuous narration exceeds the reviewed commercial; shorten or re-record the script');
+ return {scale:1,total:timelineSec};
+}
