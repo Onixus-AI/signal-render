@@ -21,13 +21,14 @@ function StoryShot({scene,first,last,opening,brand,cta,fonts,durationF}){
  const image=last?opening:scene.imageSrc;
  const hasCharacter=!!scene.characterName;
  return <AbsoluteFill style={{background:'#101416',color:'#fff',fontFamily:fonts.bodyStack}}>
+  {scene.videoSrc&&<><OffthreadVideo src={scene.videoSrc} muted style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/><AbsoluteFill style={{background:workflow?'rgba(16,20,22,.72)':'linear-gradient(180deg,rgba(16,20,22,.88),rgba(16,20,22,.15) 52%,rgba(16,20,22,.92))'}}/></>}
   <div style={{position:'absolute',left:72,right:72,top:130,display:'flex',alignItems:'center',gap:20}}>
    <Img src={brand.logoUrl} style={{width:82,height:82,objectFit:'contain'}}/>
    <span style={{fontFamily:fonts.headingStack,fontSize:32,fontWeight:650}}>Onixus</span>
    <span style={{marginLeft:'auto',fontSize:22,letterSpacing:'.16em',textTransform:'uppercase',color:brand.accent}}>{last?'Your next step':workflow?'Owner in control':'Work. Connected.'}</span>
   </div>
-  <div style={{position:'absolute',top:last?345:300,left:72,right:92,zIndex:3}}><Headline text={last?(cta||scene.text):scene.text} fonts={fonts} frame={frame} last={last}/></div>
-  {!last&&!workflow&&image&&<div style={{position:'absolute',left:72,top:600,width:936,height:first?820:720,borderRadius:36,overflow:'hidden',border:'1px solid rgba(255,255,255,.2)',transform:`translateY(${(1-entrance)*75}px)`,opacity:entrance}}>
+  <div style={{position:'absolute',top:last?345:300,left:72,right:92,zIndex:3}}><Headline text={last?(scene.text||cta):scene.text} fonts={fonts} frame={frame} last={last}/></div>
+  {!last&&!workflow&&!scene.videoSrc&&image&&<div style={{position:'absolute',left:72,top:600,width:936,height:first?820:720,borderRadius:36,overflow:'hidden',border:'1px solid rgba(255,255,255,.2)',transform:`translateY(${(1-entrance)*75}px)`,opacity:entrance}}>
    <Img src={image} style={{width:'100%',height:'100%',objectFit:'cover',transform:`scale(${1.02+progress*.055})`}}/>
    <div style={{position:'absolute',inset:0,background:'linear-gradient(180deg,transparent 55%,rgba(16,20,22,.8))'}}/>
    <div style={{position:'absolute',top:28,left:28,width:50,height:5,background:brand.accent}}/>
@@ -39,7 +40,7 @@ function StoryShot({scene,first,last,opening,brand,cta,fonts,durationF}){
   {hasCharacter&&<Character scene={scene} style={{position:'absolute',left:last?300:workflow?590:575,top:last?830:workflow?905:960,width:last?480:420,height:last?640:560,zIndex:4,opacity:entrance,transform:`translateY(${(1-entrance)*35}px)`}}/>}
   {last&&<>
    <Img src={brand.logoUrl} style={{position:'absolute',top:660,left:72,width:126,height:126,objectFit:'contain',opacity:entrance}}/>
-   <div style={{position:'absolute',top:700,left:225,fontSize:38,fontWeight:650,opacity:entrance}}>onixus.xyz</div>
+   <div style={{position:'absolute',top:700,left:225,fontSize:38,fontWeight:650,opacity:entrance}}>onixus.xyz/book</div>
    <div style={{position:'absolute',top:1530,left:72,right:72,color:brand.accent,fontSize:31,fontWeight:600}}>Build. Grow. Automate.</div>
   </>}
   {!last&&<div style={{position:'absolute',left:72,bottom:345,fontSize:25,color:'#c5d0d5'}}>Illustrative business scenario</div>}

@@ -46,7 +46,7 @@ import { buildBeatStoryProps, buildCinematicProps, renderBeatStory, remotionAvai
 import { randomUUID } from "node:crypto";
 import { fetchCaptionFont, subtitlesFilter } from "./caption-font.js";
 import { isSiteCapture, premiumClipStretch } from "./premium-clip.js";
-import { cutoutStar, cutoutStarClip } from "./star-cutout.js";
+import { cutoutStar, cutoutStarClip, cutoutTeamClip } from "./star-cutout.js";
 import { WORKER_COMMIT, inspectRender } from "./render-qa.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1234,8 +1234,9 @@ async function processVideoJob(p,{terminalReporter}={}) {
         try {
           const vr = await fetchWithTimeout(s.video_url);
           if (vr.ok) { videoFile = join(dir, `scene-${s.idx}.mp4`); await writeFile(videoFile, await boundedBytes(vr,downloadBudget)); }
+          else if(s.video_required)throw new Error(`Required source video ${s.idx} download ${vr.status}`);
           else console.warn(`[job ${jobId}] scene ${s.idx} stock video ${vr.status}; using still`);
-        } catch (e) { console.warn(`[job ${jobId}] scene ${s.idx} stock fetch failed (${String(e?.message || e)}); using still`); }
+        } catch (e) { if(s.video_required)throw e; console.warn(`[job ${jobId}] scene ${s.idx} stock fetch failed (${String(e?.message || e)}); using still`); }
       }
       scenePaths.push({ ...s, file, videoFile });
     }
@@ -1497,6 +1498,11 @@ async function processVideoJob(p,{terminalReporter}={}) {
         teamToken = randomUUID();
         JOB_MEDIA.set(teamToken, dir);
         try {
+          for(let i=0;i<scenePaths.length;i++){
+            if(!scenePaths[i].videoFile)continue;
+            await premiumMotionClip(scenePaths[i].videoFile,join(dir,`cine-clip-${i}.mp4`),durs[i],width,height);
+            props.scenes[i].videoSrc=`http://127.0.0.1:${PORT}/_job-media/${teamToken}/cine-clip-${i}.mp4`;
+          }
           const needed = new Map(props.scenes.filter(s => s.characterName).map(s => [s.characterName + ':' + s.characterMove, s]));
           const clips = {};
           for (const [key, scene] of needed) {
@@ -1511,7 +1517,7 @@ async function processVideoJob(p,{terminalReporter}={}) {
             await writeFile(raw,clipBytes);
             const sec = await probeDuration(raw);
             if (!(sec > .5 && sec < 20)) throw new Error(`Invalid character clip duration: ${key}`);
-            await cutoutStarClip(raw, join(dir, name + '.webm'));
+            await cutoutTeamClip(raw, join(dir, name + '.webm'), FFMPEG);
             clips[key] = {url:`http://127.0.0.1:${PORT}/_job-media/${teamToken}/${name}.webm`, sec};
           }
           for (const scene of props.scenes) {
