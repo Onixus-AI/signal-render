@@ -43,6 +43,7 @@ import { MOTION_LINE_LEAD_SEC, fixedStoryDurations, continuousCommercialFit, mot
 import { buildGraphicAss, graphicStyles, lowerThirdEvents } from "./ugc-graphics.js";
 import { effectcraftCli, renderBrandBeat } from "./effectcraft.js";
 import { buildBeatStoryProps, buildCinematicProps, renderBeatStory, remotionAvailable, twinGraphicProps } from "./motion-render.js";
+import { repeatedSourceOffset } from "./source-video-offset.js";
 import { randomUUID } from "node:crypto";
 import { fetchCaptionFont, subtitlesFilter } from "./caption-font.js";
 import { isSiteCapture, premiumClipStretch } from "./premium-clip.js";
@@ -323,15 +324,16 @@ async function stillMotionClip(img, outPath, durSec, w, h, treatment = "push_in"
 // Premium clips already contain generated motion. Normalize their framing and
 // duration only; missing Premium clips are rejected by the Premium assembly
 // branch instead of being replaced with still-image motion.
-async function premiumMotionClip(videoSrc, outPath, durSec, w, h) {
+async function premiumMotionClip(videoSrc, outPath, durSec, w, h, sourceStartSec = 0) {
   // A clip shorter than its narration is eased slower (up to 1.3x) and then
   // holds its last frame. Looping it would replay the action mid-sentence.
   const srcSec = await probeDuration(videoSrc).catch(() => 0);
-  const stretch = premiumClipStretch(srcSec, durSec);
+  const seek = Math.min(Math.max(0, sourceStartSec), Math.max(0, srcSec - durSec));
+  const stretch = premiumClipStretch(srcSec - seek, durSec);
   const vf = `[0:v]setpts=${stretch.toFixed(4)}*(PTS-STARTPTS),scale=${w}:${h}:force_original_aspect_ratio=increase:flags=bicubic,crop=${w}:${h},fps=30,` +
     `tpad=stop_mode=clone:stop_duration=${durSec.toFixed(3)},trim=0:${durSec.toFixed(3)},setpts=PTS-STARTPTS,setsar=1,format=yuv420p[v]`;
   await runFfmpeg([
-    "-y", "-i", videoSrc,
+    "-y", ...(seek > 0 ? ["-ss", seek.toFixed(3)] : []), "-i", videoSrc,
     "-filter_complex", vf, "-map", "[v]", "-an", "-t", durSec.toFixed(3),
     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20", outPath,
   ]);
@@ -1500,7 +1502,9 @@ async function processVideoJob(p,{terminalReporter}={}) {
         try {
           for(let i=0;i<scenePaths.length;i++){
             if(!scenePaths[i].videoFile)continue;
-            await premiumMotionClip(scenePaths[i].videoFile,join(dir,`cine-clip-${i}.mp4`),durs[i],width,height);
+            const sourceSec=await probeDuration(scenePaths[i].videoFile);
+            const sourceStart=repeatedSourceOffset(scenePaths,i,sourceSec,durs[i]);
+            await premiumMotionClip(scenePaths[i].videoFile,join(dir,`cine-clip-${i}.mp4`),durs[i],width,height,sourceStart);
             props.scenes[i].videoSrc=`http://127.0.0.1:${PORT}/_job-media/${teamToken}/cine-clip-${i}.mp4`;
           }
           const needed = new Map(props.scenes.filter(s => s.characterName).map(s => [s.characterName + ':' + s.characterMove, s]));

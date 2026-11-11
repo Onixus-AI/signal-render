@@ -77,7 +77,7 @@ test("Premium fails when required clips are missing and bypasses Standard motion
 test("Premium clip normalization does not use the still-motion renderer", () => {
   assert.match(source, /async function premiumMotionClip\(videoSrc/);
   // Short clips ease slower then hold; they are never looped mid-sentence.
-  assert.match(source, /premiumClipStretch\(srcSec, durSec\)/);
+  assert.match(source, /premiumClipStretch\(srcSec - seek, durSec\)/);
   assert.doesNotMatch(source, /"-stream_loop", "-1", "-i", videoSrc/);
   assert.match(source, /tpad=stop_mode=clone/);
 });
