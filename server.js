@@ -1,6 +1,10 @@
+import {jobMediaHandler} from './job-media.js';
+import {verifyTeamClip} from './team-animation.js';
+import {addStorySound} from './story-sound.js';
 import {crawlPublicAds} from './ad-crawler.js';
 import { boundedBytes, videoResourceError } from "./resource-limits.js";
 import { JobJournal } from "./job-journal.js";
+import { GoogleRenderTransport, DurableRenderQueue, RENDER_DEADLINE_MS } from './cloud-render-queue.js';
 import { deliverRenderStatus } from "./status-delivery.js";
 import {AD_CANVASES,adaptationArgs,adaptationUrl} from './ad-adaptation.js';
 // signal-render — video worker with optional persistent acceptance/outbox.
@@ -35,14 +39,15 @@ import {
   transitionDuration,
 } from "./motion-director.js";
 import { allowedCaptureUrl, captureOptions, looksLikeBotChallenge, parseAllowedHosts, pickFocusOffset, stripWindow } from "./site-capture.js";
-import { MOTION_LINE_LEAD_SEC, motionSceneDurations, motionTimelineFit, retimeScenes, ugcStretchDurations, voiceoverFitPlan } from "./ugc-timing.js";
+import { MOTION_LINE_LEAD_SEC, fixedStoryDurations, continuousCommercialFit, motionSceneDurations, motionTimelineFit, retimeScenes, ugcStretchDurations, voiceoverFitPlan } from "./ugc-timing.js";
 import { buildGraphicAss, graphicStyles, lowerThirdEvents } from "./ugc-graphics.js";
 import { effectcraftCli, renderBrandBeat } from "./effectcraft.js";
 import { buildBeatStoryProps, buildCinematicProps, renderBeatStory, remotionAvailable, twinGraphicProps } from "./motion-render.js";
+import { repeatedSourceOffset } from "./source-video-offset.js";
 import { randomUUID } from "node:crypto";
 import { fetchCaptionFont, subtitlesFilter } from "./caption-font.js";
 import { isSiteCapture, premiumClipStretch } from "./premium-clip.js";
-import { cutoutStar, cutoutStarClip } from "./star-cutout.js";
+import { cutoutStar, cutoutStarClip, cutoutTeamClip } from "./star-cutout.js";
 import { WORKER_COMMIT, inspectRender } from "./render-qa.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -69,12 +74,7 @@ app.use(express.json({ limit: "5mb" }));
 // cinematic ad renders. Each job gets an unguessable token that is removed
 // when its render ends; only premium clip files are served.
 const JOB_MEDIA = new Map();
-app.get("/_job-media/:token/:name", (req, res) => {
-  const dir = JOB_MEDIA.get(String(req.params.token));
-  const name = String(req.params.name);
-  if (!dir || !/^(cine-clip-\d{1,2}\.mp4|star\.png|star-[a-z]{3,10}\.webm)$/.test(name)) return res.status(404).end();
-  res.sendFile(join(dir, name));
-});
+app.get("/_job-media/:token/:name", jobMediaHandler(JOB_MEDIA));
 
 const RENDER_TOKEN = process.env.RENDER_TOKEN;
 // Separate, lower-stakes secret for /render-html so callers that only need a
@@ -115,6 +115,16 @@ const STATUS_ENDPOINT = SUPABASE_URL
 const jobs = new Map();
 const journalDirectory = process.env.RENDER_STATE_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH;
 const journal = journalDirectory ? await new JobJournal(join(journalDirectory, "video-jobs")).init() : null;
+const cloudQueueEnabled = process.env.RENDER_QUEUE_MODE === 'google-cloud-tasks';
+if(cloudQueueEnabled && (journal || !HTML_RENDER_TOKEN || !STATUS_ENDPOINT)) {
+  throw Error('Google queue requires a callback URL, authenticated HTML rendering, and no local journal');
+}
+const cloudTransport = cloudQueueEnabled ? new GoogleRenderTransport({
+  project:process.env.GOOGLE_CLOUD_PROJECT,location:process.env.RENDER_QUEUE_LOCATION,
+  queue:process.env.RENDER_QUEUE_NAME,bucket:process.env.RENDER_RECEIPTS_BUCKET,
+  target:process.env.RENDER_TASK_TARGET_URL,token:RENDER_TOKEN,taskServiceAccount:process.env.RENDER_TASK_SERVICE_ACCOUNT,
+}) : null;
+const cloudQueue = cloudTransport ? new DurableRenderQueue(cloudTransport) : null;
 let journalErrors = 0;
 // Terminal jobs are kept an hour so UI retries still dedupe, then dropped.
 const JOB_TTL_MS = 60 * 60 * 1000;
@@ -314,15 +324,16 @@ async function stillMotionClip(img, outPath, durSec, w, h, treatment = "push_in"
 // Premium clips already contain generated motion. Normalize their framing and
 // duration only; missing Premium clips are rejected by the Premium assembly
 // branch instead of being replaced with still-image motion.
-async function premiumMotionClip(videoSrc, outPath, durSec, w, h) {
+async function premiumMotionClip(videoSrc, outPath, durSec, w, h, sourceStartSec = 0) {
   // A clip shorter than its narration is eased slower (up to 1.3x) and then
   // holds its last frame. Looping it would replay the action mid-sentence.
   const srcSec = await probeDuration(videoSrc).catch(() => 0);
-  const stretch = premiumClipStretch(srcSec, durSec);
+  const seek = Math.min(Math.max(0, sourceStartSec), Math.max(0, srcSec - durSec));
+  const stretch = premiumClipStretch(srcSec - seek, durSec);
   const vf = `[0:v]setpts=${stretch.toFixed(4)}*(PTS-STARTPTS),scale=${w}:${h}:force_original_aspect_ratio=increase:flags=bicubic,crop=${w}:${h},fps=30,` +
     `tpad=stop_mode=clone:stop_duration=${durSec.toFixed(3)},trim=0:${durSec.toFixed(3)},setpts=PTS-STARTPTS,setsar=1,format=yuv420p[v]`;
   await runFfmpeg([
-    "-y", "-i", videoSrc,
+    "-y", ...(seek > 0 ? ["-ss", seek.toFixed(3)] : []), "-i", videoSrc,
     "-filter_complex", vf, "-map", "[v]", "-an", "-t", durSec.toFixed(3),
     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20", outPath,
   ]);
@@ -709,7 +720,9 @@ async function fitVoiceoverToTimeline(dir, voicePath, totalSec) {
 }
 
 function auth(req, res, next) {
-  const h = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const h = req.path === "/tasks/render-video" && cloudQueueEnabled
+    ? req.headers["x-render-token"] || ""
+    : (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   if (!RENDER_TOKEN || h !== RENDER_TOKEN) {
     return res.status(401).json({ error: "unauthorized" });
   }
@@ -804,13 +817,16 @@ app.get("/health", async (_req, res) => {
     video_render: Boolean(ffmpegOk && RENDER_TOKEN),
     ad_adaptation: 1,
     callback_protocol: 2,
-    durable_video_jobs: Boolean(journal),
-    durable_callback_outbox: Boolean(journal),
+    durable_video_jobs: Boolean(journal || cloudQueue),
+    durable_callback_outbox: Boolean(journal || cloudQueue),
+    google_cloud_tasks: Boolean(cloudQueue),
     journal_errors: journalErrors,
     max_pending_video_jobs: 50,
     motion_graphics: effectcraftCli() ? "effectcraft" : "libass",
     // Remotion BeatStory (render_style "motion"); needs Chromium.
     motion_render: chromiumOk && remotionAvailable() ? "remotion_beatstory" : null,
+    onixus_team_motion: chromiumOk && remotionAvailable(),
+    onixus_team_animation: chromiumOk && remotionAvailable(),
     html_render: chromiumOk,
     html_render_auth_required: Boolean(HTML_RENDER_TOKEN),
     html_render_max_concurrency: MAX_HTML_CONCURRENCY,
@@ -1071,6 +1087,7 @@ let renderChain = Promise.resolve();
 
 // Adapt an approved master without TTS, diffusion, extra logos, music or captions.
 app.post('/adapt-ad', auth, (req,res)=>{
+ if(cloudQueue)return res.status(503).json({error:'Cloud adaptation dispatch is not enabled; master rendering remains available'});
  const p=req.body;
  try{
   if(!/^[0-9a-f-]{36}$/.test(p?.variant_id)||!/^[0-9a-f-]{36}$/.test(p?.attempt_id)||!AD_CANVASES[p.format]||!SUPABASE_URL)throw new Error('Invalid adaptation request');
@@ -1111,6 +1128,17 @@ app.post("/render-video", auth, async (req, res) => {
   const err = validateVideoPayload(payload);
   if (err) return res.status(400).json({ error: err });
 
+  if(cloudTransport) {
+    if(typeof payload.attempt_token!=='string' || !payload.attempt_token)return res.status(400).json({error:'A fenced attempt_token is required'});
+    try {
+      const result=await cloudTransport.enqueue(payload);
+      return res.status(202).json({ok:true,accepted:true,job_id:payload.job_id,...result});
+    } catch(e) {
+      console.error('Google render enqueue rejected:',e.message);
+      return res.status(503).json({error:'Durable render queue unavailable; job was not acknowledged'});
+    }
+  }
+
   if (journal) {
     let result;
     try { result = await journal.accept(payload); }
@@ -1140,11 +1168,33 @@ app.post("/render-video", auth, async (req, res) => {
     });
 });
 
-async function processVideoJob(p) {
+// Keep the HTTP request open for the whole task so request-billed Cloud Run
+// supplies CPU. Only acknowledge after a persisted terminal callback is sent.
+app.post('/tasks/render-video',auth,async(req,res)=>{
+  if(!cloudQueue)return res.status(404).end();
+  const error=validateVideoPayload(req.body);
+  if(error || !req.body.attempt_token)return res.status(400).json({error:error || 'Missing attempt token'});
+  const deadline=setTimeout(()=>{console.error('Cloud render task deadline exceeded');process.exit(1);},RENDER_DEADLINE_MS);
+  try {
+    const complete=await cloudQueue.execute(req.body,
+      (payload,terminalReporter)=>processVideoJob(payload,{terminalReporter}),
+      callback=>reportStatus(callback.job_id,callback.project_id,callback.patch,callback.attempt_token));
+    return res.status(complete?200:503).json({ok:complete});
+  } catch(e) {
+    console.error('Cloud render task retained for retry:',e.message);
+    return res.status(503).json({error:'Render task must be retried'});
+  } finally {clearTimeout(deadline);}
+});
+
+async function processVideoJob(p,{terminalReporter}={}) {
   const { job_id: jobId, project_id: projectId } = p;
   const report = async (patch) => {
     const terminal = ["rendered","failed"].includes(patch.status);
     const token = p.attempt_token ?? null;
+    if(terminal && terminalReporter) {
+      try {return await terminalReporter({job_id:jobId,project_id:projectId,attempt_token:token,patch});}
+      catch {const error=new Error('Durable terminal receipt unavailable; task retained for retry');error.journalFailure=true;throw error;}
+    }
     if (terminal && journal) {
       try { await journal.terminal(jobId,token,{job_id:jobId,project_id:projectId,attempt_token:token,patch}); }
       catch { journalErrors++; const error=new Error("Terminal journal write failed; retained render for recovery"); error.journalFailure=true; throw error; }
@@ -1186,8 +1236,9 @@ async function processVideoJob(p) {
         try {
           const vr = await fetchWithTimeout(s.video_url);
           if (vr.ok) { videoFile = join(dir, `scene-${s.idx}.mp4`); await writeFile(videoFile, await boundedBytes(vr,downloadBudget)); }
+          else if(s.video_required)throw new Error(`Required source video ${s.idx} download ${vr.status}`);
           else console.warn(`[job ${jobId}] scene ${s.idx} stock video ${vr.status}; using still`);
-        } catch (e) { console.warn(`[job ${jobId}] scene ${s.idx} stock fetch failed (${String(e?.message || e)}); using still`); }
+        } catch (e) { if(s.video_required)throw e; console.warn(`[job ${jobId}] scene ${s.idx} stock fetch failed (${String(e?.message || e)}); using still`); }
       }
       scenePaths.push({ ...s, file, videoFile });
     }
@@ -1237,7 +1288,7 @@ async function processVideoJob(p) {
         lineFiles.push(await exactAudio(raw, join(dir, `line-${s.idx}.wav`)));
       }
       const lineSecs = await Promise.all(lineFiles.map((f) => (f ? probeDuration(f) : 0)));
-      durs.splice(0, durs.length, ...motionSceneDurations(lineSecs, durs));
+      durs.splice(0, durs.length, ...(p.plan?.creative_template === 'OnixusTeamMotion' ? fixedStoryDurations(lineSecs, durs) : motionSceneDurations(lineSecs, durs)));
       const total = durs.reduce((a, b) => a + b, 0);
       if (total > 75) throw new Error(`narration runs ${total.toFixed(1)}s, longer than a 75s ad; shorten the script`);
       const args = ["-y"];
@@ -1266,7 +1317,8 @@ async function processVideoJob(p) {
       // never re-paced. Scene proportions (the planner's beat weighting) stay.
       const timelineSec = durs.reduce((a, b) => a + b, 0);
       const voiceSec = await probeDuration(voicePath);
-      const fit = motionTimelineFit(timelineSec, voiceSec);
+      const fit = p.narration === "continuous" && p.plan?.creative_template === "OnixusTeamMotion"
+        ? continuousCommercialFit(timelineSec, voiceSec) : motionTimelineFit(timelineSec, voiceSec);
       if (fit.scale !== 1) durs.splice(0, durs.length, ...durs.map((d) => d * fit.scale));
       voiceMeta = { path: voicePath, originalSec: voiceSec, adjustedSec: voiceSec, adjusted: false, coverage: voiceSec / timelineSec, timelineScale: fit.scale };
       console.log(`[job ${jobId}] motion timeline ${timelineSec.toFixed(2)}s -> ${durs.reduce((a, b) => a + b, 0).toFixed(2)}s for ${voiceSec.toFixed(2)}s narration`);
@@ -1289,6 +1341,7 @@ async function processVideoJob(p) {
       await writeFile(assPath, isUgc ? buildUgcAss(sorted, width, height, p.brand?.colors ?? {}, { captions: wantCaptions }) : buildAss(captionScenes, width, height, { font: await fetchCaptionFont(dir, p.fonts?.heading) }));
     }
     let musicPath = null;
+    let storySfxIncluded = false;
     if (p.music_enabled !== false && !p.music_url) {
       throw new Error("music enabled but music_url is missing");
     }
@@ -1425,7 +1478,11 @@ async function processVideoJob(p) {
       const musicIdx = musicPath ? 1 + (voicePath ? 1 : 0) : null;
       if (musicPath) a.push("-i", musicPath);
       const fc = [];
-      const aout = buildAudioGraph(fc, { voiceIdx, musicIdx, total });
+      let aout = buildAudioGraph(fc, { voiceIdx, musicIdx, total });
+      if(p.plan?.creative_template === 'OnixusTeamMotion' && (aout || voiceIdx != null)) {
+        if(!aout){fc.push(`[${voiceIdx}:a]anull[storybase]`);aout='storybase';}
+        aout=addStorySound(fc,aout,sorted,total);storySfxIncluded=true;
+      }
       if (fc.length) a.push("-filter_complex", fc.join(";"));
       a.push("-map", "0:v");
       if (aout) a.push("-map", `[${aout}]`, "-c:a", "aac", "-b:a", "160k");
@@ -1437,6 +1494,41 @@ async function processVideoJob(p) {
       await report({ progress: 35, current_step: "motion_render" });
       // Scene times follow the (possibly rescaled) timeline above.
       const props = buildBeatStoryProps({ ...p, scenes: retimeScenes(sorted, durs) }, width, height);
+      // Team stories require real approved character clips, never a still fallback.
+      let teamToken = null;
+      if (props.teamStory) {
+        teamToken = randomUUID();
+        JOB_MEDIA.set(teamToken, dir);
+        try {
+          for(let i=0;i<scenePaths.length;i++){
+            if(!scenePaths[i].videoFile)continue;
+            const sourceSec=await probeDuration(scenePaths[i].videoFile);
+            const sourceStart=repeatedSourceOffset(scenePaths,i,sourceSec,durs[i]);
+            await premiumMotionClip(scenePaths[i].videoFile,join(dir,`cine-clip-${i}.mp4`),durs[i],width,height,sourceStart);
+            props.scenes[i].videoSrc=`http://127.0.0.1:${PORT}/_job-media/${teamToken}/cine-clip-${i}.mp4`;
+          }
+          const needed = new Map(props.scenes.filter(s => s.characterName).map(s => [s.characterName + ':' + s.characterMove, s]));
+          const clips = {};
+          for (const [key, scene] of needed) {
+            const url = p.team_character_clips?.[scene.characterName]?.[scene.characterMove];
+            if (!url) throw new Error(`Approved animated character clip required: ${key}`);
+            const cr = await fetchWithTimeout(url);
+            if (!cr.ok) throw new Error(`Character clip unavailable: ${key}`);
+            const name = `team-${scene.characterName}-${scene.characterMove}`;
+            const raw = join(dir, name + '.mp4');
+            const clipBytes=await boundedBytes(cr, downloadBudget);
+            verifyTeamClip(scene.characterName,scene.characterMove,clipBytes);
+            await writeFile(raw,clipBytes);
+            const sec = await probeDuration(raw);
+            if (!(sec > .5 && sec < 20)) throw new Error(`Invalid character clip duration: ${key}`);
+            await cutoutTeamClip(raw, join(dir, name + '.webm'), FFMPEG);
+            clips[key] = {url:`http://127.0.0.1:${PORT}/_job-media/${teamToken}/${name}.webm`, sec};
+          }
+          for (const scene of props.scenes) {
+            if(scene.characterName) scene.characterClip = clips[scene.characterName + ':' + scene.characterMove];
+          }
+        } catch (e) { JOB_MEDIA.delete(teamToken); throw e; }
+      }
       // The star character (Onyx): cut out of its studio backdrop and served
       // to Remotion over loopback, so it sits cleanly on every scene.
       let starToken = null;
@@ -1477,6 +1569,7 @@ async function processVideoJob(p) {
         await renderBeatStory({ props, outPath: motionPath });
       } finally {
         if (starToken) JOB_MEDIA.delete(starToken);
+        if (teamToken) JOB_MEDIA.delete(teamToken);
       }
       await muxRemotion(motionPath, durs.reduce((a, b) => a + b, 0));
       renderStyle = "motion_beatstory";
@@ -1660,6 +1753,7 @@ async function processVideoJob(p) {
         has_audio: hasAudio,
         voiceover_included: Boolean(voicePath),
         music_included: Boolean(musicPath),
+        story_sfx_included: storySfxIncluded,
         voiceover_original_sec: voiceMeta?.originalSec ?? null,
         voiceover_adjusted_sec: voiceMeta?.adjustedSec ?? null,
         voiceover_timing_adjusted: voiceMeta?.adjusted ?? false,

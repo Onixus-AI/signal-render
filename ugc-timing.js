@@ -86,3 +86,24 @@ export function motionSceneDurations(lineSecs, plannedSecs, { endcardMinSec = 2.
     return last ? Math.max(d, endcardMinSec) : d;
   });
 }
+
+/** Keep a reviewed story's requested runtime while leaving narration at its
+ * natural speed. Allocate only visual hold time; never trim a spoken line. */
+export function fixedStoryDurations(lineSecs, plannedSecs) {
+  if (!plannedSecs.length || plannedSecs.some(v => !Number.isFinite(v) || v <= 0) || lineSecs.length !== plannedSecs.length) throw new Error('invalid story timing');
+  const total = plannedSecs.reduce((a,b)=>a+b,0);
+  const minimum = lineSecs.map((line,i)=> {
+    if (!Number.isFinite(line) || line < 0) throw new Error('invalid narration duration');
+    return Math.max(i===plannedSecs.length-1 ? 2.5 : 1.2, MOTION_LINE_LEAD_SEC + line + (i===plannedSecs.length-1 ? 1.2 : MOTION_LINE_GAP_SEC));
+  });
+  const spare = total - minimum.reduce((a,b)=>a+b,0);
+  if (spare < -.001) throw new Error('Narration does not fit the approved story duration; shorten the script');
+  return minimum.map((v,i)=>v+Math.max(0,spare)*plannedSecs[i]/total);
+}
+
+/** A reviewed commercial keeps its visual/CTA holds; never accelerate a voice to fit. */
+export function continuousCommercialFit(timelineSec, voiceSec) {
+ if (!Number.isFinite(timelineSec) || timelineSec <= 0 || !Number.isFinite(voiceSec) || voiceSec <= 0) throw new Error('voiceover duration is invalid');
+ if (voiceSec > timelineSec) throw new Error('Continuous narration exceeds the reviewed commercial; shorten or re-record the script');
+ return {scale:1,total:timelineSec};
+}

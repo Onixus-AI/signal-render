@@ -14,6 +14,7 @@
 // Light background, navy type, brand colours as accents, fonts chosen per ad.
 import React from "react";
 import { GraphicBody } from "./Graphics.jsx";
+import { TeamStory } from "./TeamStory.jsx";
 import { Star } from "./Star.jsx";
 import { FPS, useAdFonts, stack, Words, fitSize, paletteColor, textOn } from "./shared.jsx";
 export { FPS };
@@ -251,6 +252,7 @@ export const BeatStory = (props) => {
   const sorted = [...scenes].sort((a, b) => a.startMs - b.startMs);
   const lastStart = sorted.length ? f(sorted[sorted.length - 1].startMs) : durationInFrames;
   const progress = interpolate(frame, [0, durationInFrames], [0, 100], clamp);
+  if(props.teamStory) return <TeamStory scenes={sorted} brand={B} cta={cta} fonts={F}/>;
   return (
     <AbsoluteFill style={{ fontFamily: F.bodyStack }}>
       <Grid />

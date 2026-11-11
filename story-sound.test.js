@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {addStorySound} from './story-sound.js';
+test('story sound is generated locally and aligned to authored beats',()=>{const graph=[];assert.equal(addStorySound(graph,'voice',[{end_ms:4000},{start_ms:17000,character_action:'handoff'}],30),'storysound');assert.match(graph[0],/adelay=3800/);assert.match(graph[1],/adelay=17000/);assert.match(graph[2],/duration=first:normalize=0/);assert.ok(graph.every(x=>!x.includes('http')));});

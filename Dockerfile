@@ -29,6 +29,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY server.js ad-crawler.js ad-case-studies.js resource-limits.js job-journal.js status-delivery.js motion-director.js site-capture.js ugc-timing.js ad-adaptation.js ugc-graphics.js effectcraft.js motion-render.js caption-font.js premium-clip.js star-cutout.js render-qa.js ./
+COPY cloud-render-queue.js story-sound.js team-animation.js job-media.js edge-backdrop.js source-video-offset.js ./
 COPY templates ./templates
 COPY mograph ./mograph
 # Remotion BeatStory template (render_style "motion"), bundled at first use.

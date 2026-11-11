@@ -7,7 +7,7 @@
 import { spawn } from "node:child_process";
 
 /** The commit this worker was built from (Railway sets it on Git deploys). */
-export const WORKER_COMMIT = (process.env.RAILWAY_GIT_COMMIT_SHA || "").slice(0, 40) || null;
+export const WORKER_COMMIT = (process.env.WORKER_COMMIT || process.env.RAILWAY_GIT_COMMIT_SHA || "").slice(0, 40) || null;
 
 export const QA_TILES = 12;
 
