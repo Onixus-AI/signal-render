@@ -84,6 +84,15 @@ test("text_only scenes play without their picture", () => {
   assert.equal(p.scenes[0].imageSrc, null);
 });
 
+test("motion graphic hooks never show the blank transport canvas as an image", async () => {
+  const p = buildBeatStoryProps({ scenes: [{ idx: 1, end_ms: 3000, beat: "hook", media: "motion_graphic", image_url: "https://x/blank.png", graphic: { type: "icon_row", items: [{ label: "Approval pending", icon: "clock" }, { label: "Invoice on hold", icon: "doc" }] } }] });
+  assert.equal(p.scenes[0].imageSrc, null);
+  assert.equal(p.scenes[0].graphic.type, "icon_row");
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("./motion/BeatStory.jsx", import.meta.url), "utf8");
+  assert.match(src, /scene\.graphic \? <div[\s\S]*?<GraphicBody graphic=\{scene\.graphic\}/);
+});
+
 import { cleanGraphic } from "./motion-render.js";
 
 test("motion graphics: specs are validated and malformed ones dropped", () => {

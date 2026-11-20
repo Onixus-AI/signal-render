@@ -97,10 +97,13 @@ function Enter({ children, durationF }) {
 
 function Hook({ scene, fonts, brand, eyebrow, durationF }) {
   const size = fitSize(scene.text, 112, 72);
+  const hasVisual = Boolean(scene.graphic || scene.imageSrc);
   return (
     <Enter durationF={durationF}>
-      {scene.imageSrc ? <PhotoCard src={scene.imageSrc} top={250} height={900} durationF={durationF} /> : null}
-      <div style={{ position: "absolute", left: 80, top: scene.imageSrc ? 1200 : 640, right: 80 }}>
+      {scene.graphic ? <div style={{ position: "absolute", left: 80, top: 390, width: 736, transform: "scale(1.25)", transformOrigin: "top left" }}>
+        <GraphicBody graphic={scene.graphic} fonts={fonts} brand={brand} durationF={durationF} />
+      </div> : scene.imageSrc ? <PhotoCard src={scene.imageSrc} top={250} height={900} durationF={durationF} /> : null}
+      <div style={{ position: "absolute", left: 80, top: hasVisual ? 1200 : 640, right: 80 }}>
         {eyebrow ? <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 26, fontFamily: fonts.bodyStack, fontSize: 30, fontWeight: 700, letterSpacing: "0.16em", color: SLATE, textTransform: "uppercase" }}>
           <span style={{ width: 56, height: 6, background: brand.primary }} />{eyebrow}
         </div> : null}
