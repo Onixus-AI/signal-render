@@ -45,7 +45,9 @@ export function buildBeatStoryProps(p, width = 1080, height = 1920) {
     media: s.endcard ? "endcard" : s.media === "star_solo" ? "star" : s.media === "text_only" ? "text" : s.media === "site_screenshot" || /-site-\d+\.(jpe?g|png)$/i.test(String(s.image_path || "")) ? "site" : "photo",
     // A picture that failed Signal's "does it show what the scene says" check
     // is left out rather than shown: never confuse the viewer.
-    imageSrc: s.media === "text_only" || s.media === "star_solo" ? null : s.image_url || null,
+    // Motion-graphic scenes carry a plain backing canvas for transport. Never
+    // show that canvas as a photo, especially in the opening hook.
+    imageSrc: s.media === "text_only" || s.media === "star_solo" || s.media === "motion_graphic" ? null : s.image_url || null,
     graphic: cleanGraphic(s.graphic),
     ...(teamStory ? {characterName:s.character, characterMove:({explain:'point',question:'handle',handoff:'point',reveal:'wave'})[s.character_action], characterSrc:characterAssets[s.character], partnerSrc:s.partner?characterAssets[s.partner]:null, characterAction:s.character_action} : {}),
     starAction: String(s.star_action || "").slice(0, 20) || null,
